@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	refreshInterval = 500 * time.Millisecond
+	refreshInterval = 1000 * time.Millisecond
 )
 
 // ANSI escape sequences.
