@@ -1,0 +1,96 @@
+# ShivaShield XDP — Example Configuration
+# Copy to /etc/shivashield/shivashield.yaml and adjust.
+#
+# Free & Open Source — No license key required.
+
+# Network interfaces to protect (supports multiple).
+interfaces:
+  - eth0
+
+# XDP attach mode:
+#   auto     - try native (driver), fall back to generic (SKB)
+#   native   - driver mode only (best performance)
+#   generic  - SKB mode, works everywhere, slower
+#   offload  - NIC offload (if hardware supports it)
+xdp_mode: auto
+
+# Rate-limit thresholds. All per-source-IP per-second unless noted.
+thresholds:
+  pps: 200000       # max total packets/sec per source IP
+  syn: 2000         # max TCP SYN/sec per source IP
+  udp: 10000        # max UDP packets/sec per source IP
+  icmp: 500         # max ICMP packets/sec per source IP
+  new_src: 500      # max new source IPs/sec (global)
+  flow_pps: 20000   # max packets/sec per flow (src+dst+proto+ports)
+  flow_bps: 20000000 # max bytes/sec per flow (~20 MB/s)
+
+# Auto-ban duration (seconds) after a threshold is exceeded.
+# 0 = drop packets but don't ban (rate limit only).
+ban_duration_sec: 300
+
+# Feature toggles.
+features:
+  # Detect TCP port scans (NULL, FIN, XMAS flag patterns).
+  port_scan_detection: true
+  # Detect amplification attacks from DNS/NTP/SSDP/Memcached ports.
+  amplification_detection: true
+
+# Discord webhook alerts (optional). Leave webhook_url empty to disable.
+discord:
+  webhook_url: ""
+  # Event categories to notify on:
+  #   rule_trigger  — any rate limit violation
+  #   ip_banned     — auto-ban applied
+  #   new_source    — new source flood or GeoIP block
+  events:
+    - rule_trigger
+    - ip_banned
+    - new_source
+  # Minimum seconds between two alerts of the same event type.
+  min_interval_sec: 10
+
+# Blackhole mode: when enabled, only source IPs known before activation
+# (plus admin IPs + whitelist) may pass; everything else is dropped.
+# Toggle at runtime with `shivashield blackhole on|off` or TUI [SPACE].
+blackhole:
+  enabled: false
+  # Admin IPs that are never locked out.
+  # SSH connections and sshd ListenAddress are auto-detected on load.
+  admin_ips: []
+  # admin_ips: ["203.0.113.10", "2001:db8::1"]
+
+# GeoIP blocking (optional). Requires MaxMind GeoLite2 CSV databases.
+# Download free from: https://dev.maxmind.com/geoip/geolite2-free-geolocation-data
+geoip:
+  enabled: false
+  database_path: "/var/lib/shivashield/geoip"
+  # ISO 3166-1 alpha-2 country codes to block.
+  block_countries: []
+  # block_countries: ["CN", "RU", "KP"]
+
+# Per-port rate limits (optional). Protect specific services with
+# tighter limits than the global thresholds.
+port_rules: []
+  # - port: 80
+  #   proto: tcp
+  #   pps: 50000
+  #   bps: 50000000
+  # - port: 443
+  #   proto: tcp
+  #   pps: 50000
+  #   bps: 50000000
+  # - port: 53
+  #   proto: udp
+  #   pps: 5000
+  #   bps: 5000000
+
+# Logging configuration.
+logging:
+  # Log level: debug, info, warn, error
+  level: info
+  # Log format: text (human-readable) or json (structured)
+  format: text
+  # File path for log output (empty = stdout only).
+  # Logs are rotated automatically when they exceed 100 MB.
+  file_path: ""
+  # file_path: "/var/log/shivashield/shivashield.log"
