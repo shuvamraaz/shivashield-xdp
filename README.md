@@ -251,6 +251,19 @@ This error means an XDP firewall is already attached to the network interface.
 
 ---
 
+## Troubleshooting
+
+### Error: `failed to attach link: create link: file exists`
+
+This error means an XDP firewall is already attached to the network interface.
+1. **Did you forget to stop the background service?** Run `sudo systemctl stop shivashield` first.
+2. **Is it a ghost program from a crash?** If the program crashed, a "zombie" XDP link might be stuck on the interface. To clear it forcefully, run:
+   ```bash
+   sudo ip link set dev eth0 xdp off
+   ```
+
+---
+
 ## License
 
 MIT License — Copyright (c) 2026 Shiva
