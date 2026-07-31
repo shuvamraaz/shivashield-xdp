@@ -52,20 +52,54 @@ ShivaShield is a high-performance, kernel-level DDoS protection and traffic filt
 ## Quick Install
 
 ```bash
-# One-line install (interactive):
-curl -fsSL https://raw.githubusercontent.com/shivashield/shivashield-xdp/main/install.sh | sudo bash
+# Clone and run the interactive installer:
+git clone https://github.com/shuvamraaz/shivashield-xdp.git
+cd shivashield-xdp
+chmod +x install.sh
+sudo ./install.sh
 
-# Non-interactive install with defaults:
+# Or non-interactive with defaults:
 sudo ./install.sh --auto --interface eth0 --preset Hosting --traffic Balanced
 ```
 
-### Build from Source
+> **Ubuntu 22.04 note:** The default Go (1.18) is too old. Install Go 1.22+ first:
+> ```bash
+> wget -q https://go.dev/dl/go1.23.0.linux-amd64.tar.gz
+> sudo rm -rf /usr/local/go
+> sudo tar -C /usr/local -xzf go1.23.0.linux-amd64.tar.gz
+> export PATH=$PATH:/usr/local/go/bin
+> echo 'export PATH=$PATH:/usr/local/go/bin:~/go/bin' >> ~/.bashrc
+> ```
+
+### Build from Source (Manual)
 
 ```bash
 git clone https://github.com/shuvamraaz/shivashield-xdp.git
 cd shivashield-xdp
-make all
-sudo make install
+
+# Generate vmlinux.h from your kernel
+bpftool btf dump file /sys/kernel/btf/vmlinux format c > ebpf/headers/vmlinux.h
+
+# Download dependencies and compile BPF
+go mod tidy
+go generate ./...
+
+# Build binary
+mkdir -p bin
+CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/shivashield ./cmd/shivashield
+cp shivashield_x86_bpfel.o bin/shivashield.bpf.o
+
+# Install to system
+sudo install -d /opt/shivashield /etc/shivashield
+sudo install -m 0755 bin/shivashield /opt/shivashield/shivashield
+sudo cp bin/shivashield.bpf.o /opt/shivashield/
+sudo ln -sf /opt/shivashield/shivashield /usr/local/bin/shivashield
+sudo cp configs/shivashield.example.yaml /etc/shivashield/shivashield.yaml
+sudo cp systemd/shivashield.service /etc/systemd/system/
+sudo systemctl daemon-reload
+
+# Launch
+sudo shivashield load
 ```
 
 ---
