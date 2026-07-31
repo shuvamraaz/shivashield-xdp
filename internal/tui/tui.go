@@ -1,12 +1,9 @@
 // Package tui implements a live terminal dashboard for ShivaShield.
-//
-// It displays real-time packet rates, protocol breakdown, active bans,
-// blackhole status, and top blocked IPs — all using ANSI escape codes
-// (no external TUI libraries).
 package tui
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"strings"
@@ -33,23 +30,20 @@ const (
 	red         = "\033[31m"
 	green       = "\033[32m"
 	yellow      = "\033[33m"
-	blue        = "\033[34m"
 	magenta     = "\033[35m"
 	cyan        = "\033[36m"
 	white       = "\033[37m"
 	dimWhite    = "\033[90m"
 	bgRed       = "\033[41m"
 	bgGreen     = "\033[42m"
-	bgBlue      = "\033[44m"
 )
 
-// Linux termios constants for raw mode.
+// Linux termios constants.
 const (
-	ioctlGetTermios = 0x5401 // TCGETS
-	ioctlSetTermios = 0x5402 // TCSETS
+	ioctlGetTermios = 0x5401
+	ioctlSetTermios = 0x5402
 )
 
-// termios matches the C struct termios.
 type termios struct {
 	Iflag  uint32
 	Oflag  uint32
@@ -61,7 +55,8 @@ type termios struct {
 	Ospeed uint32
 }
 
-// makeRaw puts the terminal into raw mode and returns the old state.
+// makeRaw puts terminal into raw mode for INPUT only.
+// We keep OPOST enabled so \n still produces \r\n on output.
 func makeRaw(fd int) (*termios, error) {
 	var old termios
 	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL,
@@ -71,17 +66,16 @@ func makeRaw(fd int) (*termios, error) {
 	}
 
 	raw := old
-	// Turn off echo, canonical mode, signals, and extensions.
+	// Input: disable echo, canonical mode, signals.
 	raw.Lflag &^= syscall.ECHO | syscall.ICANON | syscall.ISIG | syscall.IEXTEN
-	// Turn off input processing.
+	// Input: disable special input processing.
 	raw.Iflag &^= syscall.IGNBRK | syscall.BRKINT | syscall.PARMRK |
 		syscall.ISTRIP | syscall.INLCR | syscall.IGNCR | syscall.ICRNL | syscall.IXON
-	// Turn off output processing.
-	raw.Oflag &^= syscall.OPOST
+	// DO NOT touch Oflag — keep OPOST so \n works as \r\n.
 	// Set 8-bit chars.
 	raw.Cflag &^= syscall.CSIZE | syscall.PARENB
 	raw.Cflag |= syscall.CS8
-	// Read returns after 1 byte, with no timeout.
+	// Return after 1 byte, no timeout.
 	raw.Cc[syscall.VMIN] = 1
 	raw.Cc[syscall.VTIME] = 0
 
@@ -93,7 +87,6 @@ func makeRaw(fd int) (*termios, error) {
 	return &old, nil
 }
 
-// restoreTerminal restores the terminal to a previous state.
 func restoreTerminal(fd int, state *termios) {
 	if state == nil {
 		return
@@ -107,10 +100,11 @@ type Dashboard struct {
 	fw        *firewall.Firewall
 	stopCh    chan struct{}
 	prevStats firewall.Stats
+	hasPrev   bool
 	oldState  *termios
 }
 
-// New creates a new Dashboard for the given firewall.
+// New creates a new Dashboard.
 func New(fw *firewall.Firewall) *Dashboard {
 	return &Dashboard{
 		fw:     fw,
@@ -118,38 +112,34 @@ func New(fw *firewall.Firewall) *Dashboard {
 	}
 }
 
-// Run starts the dashboard loop.  Blocks until 'q' is pressed or
-// the firewall is stopped.
+// Run starts the dashboard. Blocks until Q or signal.
 func (d *Dashboard) Run() {
-	// Put terminal into raw mode so single keypresses work.
 	fd := int(os.Stdin.Fd())
 	old, err := makeRaw(fd)
 	if err == nil {
 		d.oldState = old
 	}
 
-	// Hide cursor during TUI.
+	// Hide cursor, suppress log output during TUI.
 	fmt.Fprint(os.Stdout, hideCursor)
+	log.SetOutput(devNull{})
 
-	// Restore terminal on exit.
 	defer func() {
 		fmt.Fprint(os.Stdout, showCursor)
 		fmt.Fprint(os.Stdout, clearScreen+cursorHome)
 		restoreTerminal(fd, d.oldState)
+		log.SetOutput(os.Stderr) // restore logging
 	}()
 
-	// Handle signals.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(sigCh)
 
-	// Start keyboard listener.
 	go d.readInput()
 
 	ticker := time.NewTicker(refreshInterval)
 	defer ticker.Stop()
 
-	// Initial render.
 	d.render()
 
 	for {
@@ -164,7 +154,11 @@ func (d *Dashboard) Run() {
 	}
 }
 
-// Stop signals the dashboard to exit.
+// devNull discards all log output.
+type devNull struct{}
+
+func (devNull) Write(p []byte) (int, error) { return len(p), nil }
+
 func (d *Dashboard) Stop() {
 	select {
 	case <-d.stopCh:
@@ -173,7 +167,6 @@ func (d *Dashboard) Stop() {
 	}
 }
 
-// readInput listens for single keypresses (works because terminal is raw).
 func (d *Dashboard) readInput() {
 	buf := make([]byte, 1)
 	for {
@@ -192,22 +185,25 @@ func (d *Dashboard) readInput() {
 			d.Stop()
 			return
 		case ' ':
-			// Toggle blackhole mode.
 			bh := d.fw.IsBlackhole()
 			d.fw.SetBlackhole(!bh)
 		}
 	}
 }
 
-// render draws one frame of the dashboard.
 func (d *Dashboard) render() {
 	stats, err := d.fw.Stats()
 	if err != nil {
 		return
 	}
 
-	rate := firewall.CalcRate(d.prevStats, stats)
+	// Calculate rate (skip first frame to avoid overflow).
+	var rate firewall.StatsRate
+	if d.hasPrev {
+		rate = firewall.CalcRate(d.prevStats, stats)
+	}
 	d.prevStats = stats
+	d.hasPrev = true
 
 	blCount, _ := d.fw.BlacklistCount()
 	wlCount, _ := d.fw.WhitelistCount()
@@ -218,77 +214,75 @@ func (d *Dashboard) render() {
 	sb.WriteString(cursorHome)
 	sb.WriteString(clearScreen)
 
-	// -- Banner (pure ASCII) --
+	// -- Banner --
 	sb.WriteString(cyan + bold)
-	sb.WriteString("\n")
-	sb.WriteString("   +=============================================+\n")
-	sb.WriteString("   |   ____ _   _ _____     ___    ____  _   _   |\n")
-	sb.WriteString("   |  / ___| | | |_ _\\ \\   / / \\  / ___|| | | |  |\n")
-	sb.WriteString("   |  \\___ \\| |_| || | \\ \\ / / _ \\ \\___ \\| |_| |  |\n")
-	sb.WriteString("   |   ___) |  _  || |  \\ V / ___ \\ ___) |  _  |  |\n")
-	sb.WriteString("   |  |____/|_| |_|___|  \\_/_/   \\_\\____/|_| |_|  |\n")
-	sb.WriteString("   |         S H I E L D  -  X D P  v1.0         |\n")
-	sb.WriteString("   +=============================================+\n")
+	sb.WriteString("\r\n")
+	sb.WriteString("   +=============================================+\r\n")
+	sb.WriteString("   |   ____ _   _ _____     ___    ____  _   _   |\r\n")
+	sb.WriteString("   |  / ___| | | |_ _\\ \\   / / \\  / ___|| | | |  |\r\n")
+	sb.WriteString("   |  \\___ \\| |_| || | \\ \\ / / _ \\ \\___ \\| |_| |  |\r\n")
+	sb.WriteString("   |   ___) |  _  || |  \\ V / ___ \\ ___) |  _  |  |\r\n")
+	sb.WriteString("   |  |____/|_| |_|___|  \\_/_/   \\_\\____/|_| |_|  |\r\n")
+	sb.WriteString("   |         S H I E L D  -  X D P  v1.0         |\r\n")
+	sb.WriteString("   +=============================================+\r\n")
 	sb.WriteString(reset)
 
-	// -- Status Bar --
-	sb.WriteString("\n")
+	// -- Status --
+	sb.WriteString("\r\n")
 	if bh {
-		sb.WriteString(fmt.Sprintf("  %s%s [!] BLACKHOLE MODE ACTIVE %s", bold, bgRed+" "+white, reset))
+		sb.WriteString(fmt.Sprintf("  %s%s [!] BLACKHOLE ACTIVE %s", bold, bgRed+" "+white, reset))
 	} else {
 		sb.WriteString(fmt.Sprintf("  %s%s [*] PROTECTING %s", bold, bgGreen+" "+white, reset))
 	}
-	sb.WriteString(fmt.Sprintf("   Bans: %s%d%s  |  Whitelist: %s%d%s\n",
+	sb.WriteString(fmt.Sprintf("   Bans: %s%d%s  |  Whitelist: %s%d%s\r\n",
 		yellow, blCount, reset,
 		green, wlCount, reset))
 
-	// -- Packet Rates --
-	sb.WriteString(fmt.Sprintf("\n  %s-- Traffic ----------------------------------%s\n", bold+white, reset))
-	sb.WriteString(fmt.Sprintf("  %s+ Pass:%s  %s%-12s%s  %s/s\n",
+	// -- Traffic --
+	sb.WriteString(fmt.Sprintf("\r\n  %s-- Traffic ----------------------------------%s\r\n", bold+white, reset))
+	sb.WriteString(fmt.Sprintf("  %s+ Pass:%s  %s%-12s%s  %s/s\r\n",
 		green, reset, bold, util.FormatRate(rate.PassPPS), reset,
 		util.FormatBytes(rate.PassBPS)))
-	sb.WriteString(fmt.Sprintf("  %sx Drop:%s  %s%-12s%s  %s/s\n",
+	sb.WriteString(fmt.Sprintf("  %sx Drop:%s  %s%-12s%s  %s/s\r\n",
 		red, reset, bold, util.FormatRate(rate.DropPPS), reset,
 		util.FormatBytes(rate.DropBPS)))
 
 	// -- Totals --
-	sb.WriteString(fmt.Sprintf("\n  %s-- Totals ----------------------------------%s\n", bold+white, reset))
-	sb.WriteString(fmt.Sprintf("  Passed:  %s%s%s pkts  (%s)\n",
+	sb.WriteString(fmt.Sprintf("\r\n  %s-- Totals ----------------------------------%s\r\n", bold+white, reset))
+	sb.WriteString(fmt.Sprintf("  Passed:  %s%s%s pkts  (%s)\r\n",
 		green, formatCount(stats.PassPkts), reset,
 		util.FormatBytes(stats.PassBytes)))
-	sb.WriteString(fmt.Sprintf("  Dropped: %s%s%s pkts  (%s)\n",
+	sb.WriteString(fmt.Sprintf("  Dropped: %s%s%s pkts  (%s)\r\n",
 		red, formatCount(stats.DropPkts), reset,
 		util.FormatBytes(stats.DropBytes)))
 
-	// -- Protocol Breakdown --
-	sb.WriteString(fmt.Sprintf("\n  %s-- Protocols --------------------------------%s\n", bold+white, reset))
+	// -- Protocols --
+	sb.WriteString(fmt.Sprintf("\r\n  %s-- Protocols --------------------------------%s\r\n", bold+white, reset))
 	totalPPS := rate.TCPPPS + rate.UDPPPS + rate.ICMPPPS
 	if totalPPS == 0 {
 		totalPPS = 1
 	}
-	sb.WriteString(fmt.Sprintf("  TCP:  %s%-10s%s  %s\n",
+	sb.WriteString(fmt.Sprintf("  TCP:  %s%-10s%s  %s\r\n",
 		cyan, util.FormatRate(rate.TCPPPS), reset, bar(rate.TCPPPS, totalPPS, 30, cyan)))
-	sb.WriteString(fmt.Sprintf("  UDP:  %s%-10s%s  %s\n",
+	sb.WriteString(fmt.Sprintf("  UDP:  %s%-10s%s  %s\r\n",
 		magenta, util.FormatRate(rate.UDPPPS), reset, bar(rate.UDPPPS, totalPPS, 30, magenta)))
-	sb.WriteString(fmt.Sprintf("  ICMP: %s%-10s%s  %s\n",
+	sb.WriteString(fmt.Sprintf("  ICMP: %s%-10s%s  %s\r\n",
 		yellow, util.FormatRate(rate.ICMPPPS), reset, bar(rate.ICMPPPS, totalPPS, 30, yellow)))
-	sb.WriteString(fmt.Sprintf("  SYN:  %s%-10s%s\n",
+	sb.WriteString(fmt.Sprintf("  SYN:  %s%-10s%s\r\n",
 		red, util.FormatRate(rate.SYNPPS), reset))
 
 	// -- Controls --
-	sb.WriteString(fmt.Sprintf("\n  %s-- Controls --------------------------------%s\n", dimWhite, reset))
-	sb.WriteString(fmt.Sprintf("  %s[SPACE]%s Blackhole  |  %s[Q]%s Quit  |  %s[Ctrl+C]%s Stop\n",
+	sb.WriteString(fmt.Sprintf("\r\n  %s-- Controls --------------------------------%s\r\n", dimWhite, reset))
+	sb.WriteString(fmt.Sprintf("  %s[SPACE]%s Blackhole  |  %s[Q]%s Quit  |  %s[Ctrl+C]%s Stop\r\n",
 		bold, reset, bold, reset, bold, reset))
 
-	// -- Refresh --
-	if rate.Duration > 0 {
-		sb.WriteString(fmt.Sprintf("\n  %sRefresh: %.0fms%s\n", dimWhite, rate.Duration.Seconds()*1000, reset))
+	if d.hasPrev && rate.Duration > 0 && rate.Duration < 10*time.Second {
+		sb.WriteString(fmt.Sprintf("\r\n  %sRefresh: %.0fms%s\r\n", dimWhite, rate.Duration.Seconds()*1000, reset))
 	}
 
 	fmt.Fprint(os.Stdout, sb.String())
 }
 
-// bar renders a simple horizontal bar chart.
 func bar(value, total uint64, width int, color string) string {
 	if total == 0 {
 		return ""
@@ -301,7 +295,6 @@ func bar(value, total uint64, width int, color string) string {
 		dimWhite + strings.Repeat("-", width-filled) + reset
 }
 
-// formatCount formats a large number with commas.
 func formatCount(n uint64) string {
 	s := fmt.Sprintf("%d", n)
 	if len(s) <= 3 {

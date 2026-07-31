@@ -272,16 +272,6 @@ func (fw *Firewall) pushConfig() error {
 
 	// Build the ss_config struct in binary.
 	// Must match the struct layout in shivashield.h exactly.
-	buf := make([]byte, 64) // ss_config is 64 bytes
-	binary.LittleEndian.PutUint64(buf[0:8], fw.cfg.Thresholds.PPS)
-	binary.LittleEndian.PutUint64(buf[8:16], fw.cfg.Thresholds.SYN)
-	binary.LittleEndian.PutUint64(buf[16:24], fw.cfg.Thresholds.UDP)
-	binary.LittleEndian.PutUint64(buf[24:32], fw.cfg.Thresholds.ICMP)
-	binary.LittleEndian.PutUint64(buf[32:40], fw.cfg.Thresholds.NewSrc)
-	binary.LittleEndian.PutUint64(buf[40:48], fw.cfg.Thresholds.FlowPPS)
-	binary.LittleEndian.PutUint64(buf[48:56], fw.cfg.Thresholds.FlowBPS)
-	binary.LittleEndian.PutUint32(buf[56:60], fw.cfg.BanDurationSec)
-
 	var bhFlag, geoFlag, psFlag, ampFlag uint32
 	if fw.cfg.Blackhole.Enabled {
 		bhFlag = 1
