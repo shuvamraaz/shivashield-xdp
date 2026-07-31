@@ -8,7 +8,7 @@ import (
 
 	"github.com/cilium/ebpf"
 
-	"github.com/shivashield/shivashield-xdp/internal/util"
+	"github.com/shuvamraaz/shivashield-xdp/internal/util"
 )
 
 // BanManager periodically scans the blacklist map and removes expired

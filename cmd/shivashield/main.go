@@ -24,11 +24,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/shivashield/shivashield-xdp/internal/config"
-	"github.com/shivashield/shivashield-xdp/internal/firewall"
-	"github.com/shivashield/shivashield-xdp/internal/loader"
-	"github.com/shivashield/shivashield-xdp/internal/tui"
-	"github.com/shivashield/shivashield-xdp/internal/util"
+	"github.com/shuvamraaz/shivashield-xdp/internal/config"
+	"github.com/shuvamraaz/shivashield-xdp/internal/firewall"
+	"github.com/shuvamraaz/shivashield-xdp/internal/loader"
+	"github.com/shuvamraaz/shivashield-xdp/internal/tui"
+	"github.com/shuvamraaz/shivashield-xdp/internal/util"
 )
 
 const (

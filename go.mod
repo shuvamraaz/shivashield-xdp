@@ -1,4 +1,4 @@
-module github.com/shivashield/shivashield-xdp
+module github.com/shuvamraaz/shivashield-xdp
 
 go 1.22.0
 

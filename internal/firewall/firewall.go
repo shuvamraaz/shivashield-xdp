@@ -15,10 +15,10 @@ import (
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/ringbuf"
 
-	"github.com/shivashield/shivashield-xdp/internal/alerts"
-	"github.com/shivashield/shivashield-xdp/internal/config"
-	"github.com/shivashield/shivashield-xdp/internal/loader"
-	"github.com/shivashield/shivashield-xdp/internal/util"
+	"github.com/shuvamraaz/shivashield-xdp/internal/alerts"
+	"github.com/shuvamraaz/shivashield-xdp/internal/config"
+	"github.com/shuvamraaz/shivashield-xdp/internal/loader"
+	"github.com/shuvamraaz/shivashield-xdp/internal/util"
 )
 
 // Event type constants — must match EVT_* in shivashield.h.
