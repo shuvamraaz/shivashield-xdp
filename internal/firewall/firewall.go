@@ -302,7 +302,7 @@ func (fw *Firewall) pushConfig() error {
 	//   _pad u32 = offset 76..79
 	//   Total = 80 bytes
 
-	buf = make([]byte, 80)
+	buf := make([]byte, 80)
 	binary.LittleEndian.PutUint64(buf[0:8], fw.cfg.Thresholds.PPS)
 	binary.LittleEndian.PutUint64(buf[8:16], fw.cfg.Thresholds.SYN)
 	binary.LittleEndian.PutUint64(buf[16:24], fw.cfg.Thresholds.UDP)
