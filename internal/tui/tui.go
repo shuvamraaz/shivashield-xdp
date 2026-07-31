@@ -217,14 +217,13 @@ func (d *Dashboard) render() {
 	// -- Banner --
 	sb.WriteString(cyan + bold)
 	sb.WriteString("\r\n")
-	sb.WriteString("   +=============================================+\r\n")
-	sb.WriteString("   |   ____ _   _ _____     ___    ____  _   _   |\r\n")
-	sb.WriteString("   |  / ___| | | |_ _\\ \\   / / \\  / ___|| | | |  |\r\n")
-	sb.WriteString("   |  \\___ \\| |_| || | \\ \\ / / _ \\ \\___ \\| |_| |  |\r\n")
-	sb.WriteString("   |   ___) |  _  || |  \\ V / ___ \\ ___) |  _  |  |\r\n")
-	sb.WriteString("   |  |____/|_| |_|___|  \\_/_/   \\_\\____/|_| |_|  |\r\n")
-	sb.WriteString("   |         S H I E L D  -  X D P  v1.0         |\r\n")
-	sb.WriteString("   +=============================================+\r\n")
+	sb.WriteString("  ███████╗██╗  ██╗██╗██╗   ██╗ █████╗ ███████╗██╗  ██╗██╗███████╗██╗     ██████╗\r\n")
+	sb.WriteString("  ██╔════╝██║  ██║██║██║   ██║██╔══██╗██╔════╝██║  ██║██║██╔════╝██║     ██╔══██╗\r\n")
+	sb.WriteString("  ███████╗███████║██║██║   ██║███████║███████╗███████║██║█████╗  ██║     ██║  ██║\r\n")
+	sb.WriteString("  ╚════██║██╔══██║██║╚██╗ ██╔╝██╔══██║╚════██║██╔══██║██║██╔══╝  ██║     ██║  ██║\r\n")
+	sb.WriteString("  ███████║██║  ██║██║ ╚████╔╝ ██║  ██║███████║██║  ██║██║███████╗███████╗██████╔╝\r\n")
+	sb.WriteString("  ╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝  ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝╚══════╝╚══════╝╚═════╝\r\n")
+	sb.WriteString("                         X D P   F I R E W A L L   v1.0.0\r\n")
 	sb.WriteString(reset)
 
 	// -- Status --
@@ -234,7 +233,7 @@ func (d *Dashboard) render() {
 	} else {
 		sb.WriteString(fmt.Sprintf("  %s%s [*] PROTECTING %s", bold, bgGreen+" "+white, reset))
 	}
-	sb.WriteString(fmt.Sprintf("   Bans: %s%d%s  |  Whitelist: %s%d%s\r\n",
+	sb.WriteString(fmt.Sprintf("   Total Bans: %s%d%s  |  Whitelist: %s%d%s\r\n",
 		yellow, blCount, reset,
 		green, wlCount, reset))
 
@@ -268,8 +267,8 @@ func (d *Dashboard) render() {
 		magenta, util.FormatRate(rate.UDPPPS), reset, bar(rate.UDPPPS, totalPPS, 30, magenta)))
 	sb.WriteString(fmt.Sprintf("  ICMP: %s%-10s%s  %s\r\n",
 		yellow, util.FormatRate(rate.ICMPPPS), reset, bar(rate.ICMPPPS, totalPPS, 30, yellow)))
-	sb.WriteString(fmt.Sprintf("  SYN:  %s%-10s%s\r\n",
-		red, util.FormatRate(rate.SYNPPS), reset))
+	sb.WriteString(fmt.Sprintf("  SYN:  %s%-10s%s  %s\r\n",
+		red, util.FormatRate(rate.SYNPPS), reset, bar(rate.SYNPPS, totalPPS, 30, red)))
 
 	// -- Controls --
 	sb.WriteString(fmt.Sprintf("\r\n  %s-- Controls --------------------------------%s\r\n", dimWhite, reset))
