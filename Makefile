@@ -45,6 +45,9 @@ $(VMLINUX_H):
 # ── generate (bpf2go) ──────────────────────────────────────────────
 
 generate: $(VMLINUX_H)
+	@echo "[*] Downloading Go dependencies..."
+	go mod tidy
+	go install github.com/cilium/ebpf/cmd/bpf2go@v0.16.0
 	@echo "[*] Running bpf2go (compiling C → BPF bytecode + Go bindings)..."
 	go generate ./...
 	@echo "[*] BPF generation complete"
@@ -55,6 +58,7 @@ build:
 	@echo "[*] Building $(BINARY)..."
 	@mkdir -p $(BIN_DIR)
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BINARY) $(GO_MAIN)
+	cp -f shivashield_x86_bpfel.o $(BIN_DIR)/shivashield.bpf.o 2>/dev/null || true
 	@echo "[*] Built: $(BIN_DIR)/$(BINARY) ($(shell ls -lh $(BIN_DIR)/$(BINARY) | awk '{print $$5}'))"
 
 # ── install ─────────────────────────────────────────────────────────
