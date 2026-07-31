@@ -162,10 +162,27 @@ shivashield version
 
 ### TUI Dashboard Controls
 
-| Key     | Action                     |
-|---------|----------------------------|
-| `SPACE` | Toggle blackhole mode      |
-| `Q`     | Quit dashboard             |
+| Key       | Action                     |
+|-----------|----------------------------|
+| `SPACE`   | Toggle blackhole mode      |
+| `Q`       | Quit dashboard             |
+| `Ctrl+C`  | Stop firewall and exit     |
+
+---
+
+## ⚠️ The Golden Rule
+
+> **You cannot run the live TUI dashboard and the background systemd service at the same time.**
+>
+> Both compete for the same XDP attachment on the network interface. Always stop the service before launching the dashboard, then restart it when done.
+
+```bash
+# Correct workflow:
+sudo systemctl stop shivashield
+sudo shivashield load          # dashboard opens
+# ... press Q when done ...
+sudo systemctl start shivashield
+```
 
 ---
 
@@ -187,6 +204,40 @@ Each preset can be scaled by a traffic profile:
 - **Strict** — 0.5× (tighter limits)
 - **Balanced** — 1.0× (default)
 - **High** — 2.0× (more permissive)
+
+### Recommended Thresholds for a Typical VPS
+
+```yaml
+thresholds:
+  pps: 25000
+  syn: 50          # 50 SYN/s per IP is plenty for legitimate traffic
+  udp: 500
+  icmp: 100
+  new_src: 100
+  flow_pps: 5000
+  flow_bps: 5000000
+
+ban_duration_sec: 600  # Ban for 10 minutes
+```
+
+---
+
+## Persistent Whitelist & Blacklist
+
+Whitelisted and blacklisted IPs are stored as plain text files that survive reboots:
+
+| File | Purpose |
+|------|---------|
+| `/etc/shivashield/whitelist.txt` | Permanently allowed IPs |
+| `/etc/shivashield/blacklist.txt` | Permanently banned IPs |
+
+These files are loaded into the kernel BPF maps automatically every time the firewall starts. When you use `shivashield whitelist add` or `shivashield blacklist add`, the IP is written to the file **and** injected into the live kernel map instantly — no restart needed.
+
+To view all banned IPs:
+```bash
+cat /etc/shivashield/blacklist.txt
+sudo shivashield blacklist list
+```
 
 ---
 
@@ -224,6 +275,58 @@ Each preset can be scaled by a traffic profile:
                                     │  XDP_PASS ──► Kernel Stack │
                                     │  XDP_DROP ──► Discarded    │
                                     └────────────────────────────┘
+```
+
+---
+
+## Troubleshooting
+
+### Error: `failed to attach link: create link: file exists`
+
+This error means an XDP program is already attached to the interface.
+
+1. **Stop the background service first:**
+   ```bash
+   sudo systemctl stop shivashield
+   ```
+2. **If it's still stuck (zombie XDP link from a crash):**
+   ```bash
+   # Force kill any hidden shivashield processes
+   sudo killall -9 shivashield
+
+   # Forcefully detach from interface
+   sudo ip link set dev eth0 xdp off
+   ```
+
+### VPS Freezes / SSH Disconnects During Attack Test
+
+This was a known bug (now fixed). The event ring buffer was receiving one event per dropped packet, flooding the SSH terminal. The fix adds kernel-level throttling (1 event/second/IP/type) so your SSH session stays stable even during large floods.
+
+Make sure you are running the latest binary compiled from the newest source:
+```bash
+git pull && make
+sudo cp bin/shivashield /usr/local/bin/
+sudo cp bin/shivashield.bpf.o /opt/shivashield/
+```
+
+### Complete Reinstall
+
+```bash
+# 1. Full wipe
+sudo systemctl stop shivashield && sudo systemctl disable shivashield
+sudo killall -9 shivashield 2>/dev/null
+sudo ip link set dev eth0 xdp off 2>/dev/null
+sudo rm -rf /opt/shivashield /etc/shivashield
+sudo rm -f /usr/local/bin/shivashield /etc/systemd/system/shivashield.service
+sudo rm -rf /sys/fs/bpf/shivashield
+sudo systemctl daemon-reload
+
+# 2. Fresh install
+cd ~/shivashield-xdp
+git pull
+make
+sudo make install
+sudo systemctl enable --now shivashield
 ```
 
 ---
