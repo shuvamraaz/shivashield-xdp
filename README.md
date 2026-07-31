@@ -106,33 +106,39 @@ sudo shivashield load
 
 ## Usage
 
+### ⚠️ The Golden Rule (Dashboard vs Background Service)
+
+You **cannot** run the live dashboard and the background service at the same time. The firewall can only attach to your network interface once!
+
+*   **Background Protection:** `sudo systemctl start shivashield` (runs silently forever).
+*   **Live Dashboard:** `sudo shivashield load` (runs in the foreground).
+
+**How to view the Live Dashboard if the service is running:**
+```bash
+# 1. Stop the background service to free up the interface
+sudo systemctl stop shivashield
+
+# 2. Run the dashboard
+sudo shivashield load
+
+# ... press 'Q' when you are done looking at it ...
+
+# 3. Start the background service again
+sudo systemctl start shivashield
+```
+
+---
+
 ### Commands
 
 ```bash
-# Attach firewall with live TUI dashboard
-sudo shivashield load
-
-# Attach headless (for systemd/background)
-sudo shivashield load --no-tui --config /etc/shivashield/shivashield.yaml
-
-# Detach firewall manually
-sudo shivashield unload
-
-# Show status
+# Show quick status
 sudo shivashield status
 
-# Manage background service (Systemd)
+# Manage background service
 sudo systemctl start shivashield
 sudo systemctl stop shivashield
 sudo systemctl restart shivashield
-sudo systemctl status shivashield
-
-# View live dashboard when service is running
-# (Must stop the background service first to release the port)
-sudo systemctl stop shivashield
-sudo shivashield load
-# ... press Q when done ...
-sudo systemctl start shivashield
 
 # Manage whitelist
 sudo shivashield whitelist add 203.0.113.10
@@ -155,9 +161,6 @@ sudo shivashield geoblock list
 
 # Hot-reload configuration (zero downtime)
 sudo kill -HUP $(pidof shivashield)
-
-# Version info
-shivashield version
 ```
 
 ### TUI Dashboard Controls
@@ -225,6 +228,26 @@ Each preset can be scaled by a traffic profile:
                                     │  XDP_DROP ──► Discarded    │
                                     └────────────────────────────┘
 ```
+
+---
+
+## Troubleshooting
+
+### Error: `failed to attach link: create link: file exists`
+
+This error means an XDP firewall is already attached to the network interface.
+1. **Did you forget to stop the background service?** Run `sudo systemctl stop shivashield` first.
+2. **Is it a ghost program from a crash?** If the program crashed, a "zombie" XDP link might be stuck on the interface. To clear it:
+   ```bash
+   # Kill any zombie background processes
+   sudo killall -9 shivashield
+   
+   # If it's still stuck, find the link ID using:
+   sudo bpftool link show
+   
+   # Then detach it manually (replace ID with the actual link ID):
+   sudo bpftool link detach id <ID>
+   ```
 
 ---
 
