@@ -47,10 +47,11 @@ func ParseXDPMode(s string) XDPMode {
 
 // Loader manages the lifecycle of the BPF program.
 type Loader struct {
-	spec    *ebpf.CollectionSpec
-	coll    *ebpf.Collection
-	links   []link.Link
-	pinPath string
+	spec     *ebpf.CollectionSpec
+	coll     *ebpf.Collection
+	links    []link.Link
+	pinPath  string
+	ownsPins bool
 }
 
 // New creates a new Loader from the compiled BPF object file.
@@ -67,9 +68,12 @@ func New(bpfObjPath string) (*Loader, error) {
 
 // Load loads the BPF program and maps into the kernel.
 func (l *Loader) Load() error {
-	// Create pin directory.
-	if err := os.MkdirAll(l.pinPath, 0700); err != nil {
-		return fmt.Errorf("create pin path %s: %w", l.pinPath, err)
+	// Create pin directory if it doesn't exist.
+	if _, err := os.Stat(l.pinPath); os.IsNotExist(err) {
+		if err := os.MkdirAll(l.pinPath, 0700); err != nil {
+			return fmt.Errorf("create pin path %s: %w", l.pinPath, err)
+		}
+		l.ownsPins = true
 	}
 
 	coll, err := ebpf.NewCollectionWithOptions(l.spec, ebpf.CollectionOptions{
@@ -160,11 +164,15 @@ func (l *Loader) Detach() {
 		l.coll = nil
 	}
 
-	// Remove pin directory.
-	if err := os.RemoveAll(l.pinPath); err != nil {
-		log.Printf("[loader] remove pins %s: %v", l.pinPath, err)
+	// Remove pin directory only if we created it.
+	if l.ownsPins {
+		if err := os.RemoveAll(l.pinPath); err != nil {
+			log.Printf("[loader] remove pins %s: %v", l.pinPath, err)
+		}
+		log.Println("[loader] XDP detached, pins removed")
+	} else {
+		log.Println("[loader] XDP detached (pins preserved)")
 	}
-	log.Println("[loader] XDP detached, pins removed")
 }
 
 // Maps returns the loaded BPF map collection for userspace interaction.
