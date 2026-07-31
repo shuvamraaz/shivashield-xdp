@@ -6,7 +6,6 @@ package firewall
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
