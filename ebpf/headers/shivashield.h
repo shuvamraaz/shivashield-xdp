@@ -94,16 +94,24 @@ typedef int64_t  __s64;
 #define PORT_SNMP     161
 
 /* Stats array indices. */
-#define STATS_PASS_PKTS   0
-#define STATS_DROP_PKTS   1
-#define STATS_PASS_BYTES  2
-#define STATS_DROP_BYTES  3
-#define STATS_TCP_PKTS    4
-#define STATS_UDP_PKTS    5
-#define STATS_ICMP_PKTS   6
-#define STATS_OTHER_PKTS  7
-#define STATS_SYN_PKTS    8
-#define STATS_MAX         9
+#define STATS_PASS_PKTS      0
+#define STATS_DROP_PKTS      1
+#define STATS_PASS_BYTES     2
+#define STATS_DROP_BYTES     3
+#define STATS_TCP_PKTS       4
+#define STATS_UDP_PKTS       5
+#define STATS_ICMP_PKTS      6
+#define STATS_OTHER_PKTS     7
+#define STATS_SYN_PKTS       8
+#define STATS_DROP_BANNED    9
+#define STATS_DROP_RATE      10
+#define STATS_DROP_BOGUS_TCP 11
+#define STATS_DROP_GEOIP     12
+#define STATS_DROP_BLACKHOLE 13
+#define STATS_DROP_SCAN      14
+#define STATS_DROP_AMP       15
+#define STATS_DROP_NONIPV4   16
+#define STATS_MAX            17
 
 /* ------------------------------------------------------------------ */
 /*  Config pushed from userspace → config_map[0]                      */

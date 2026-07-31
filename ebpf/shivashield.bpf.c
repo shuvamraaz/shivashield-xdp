@@ -388,6 +388,7 @@ int shivashield_xdp(struct xdp_md *ctx)
             /* Ban expired — remove it and continue processing. */
             bpf_map_delete_elem(&blacklist_map, &src_ip);
         } else {
+            bump_stat(STATS_DROP_BANNED, 1);
             bump_stat(STATS_DROP_PKTS, 1);
             bump_stat(STATS_DROP_BYTES, pkt_len);
             return XDP_DROP;
@@ -403,6 +404,7 @@ int shivashield_xdp(struct xdp_md *ctx)
         if (bpf_map_lookup_elem(&geoip_map, &geo_key)) {
             emit_event(EVT_GEOIP_BLOCKED, &src_ip, &dst_ip,
                        0, 0, l4proto, ip_ver, 0, 0);
+            bump_stat(STATS_DROP_GEOIP, 1);
             bump_stat(STATS_DROP_PKTS, 1);
             bump_stat(STATS_DROP_BYTES, pkt_len);
             return XDP_DROP;
@@ -414,6 +416,7 @@ int shivashield_xdp(struct xdp_md *ctx)
         if (!bpf_map_lookup_elem(&known_ips_map, &src_ip)) {
             emit_event(EVT_BLACKHOLE_DROP, &src_ip, &dst_ip,
                        0, 0, l4proto, ip_ver, 0, 0);
+            bump_stat(STATS_DROP_BLACKHOLE, 1);
             bump_stat(STATS_DROP_PKTS, 1);
             bump_stat(STATS_DROP_BYTES, pkt_len);
             return XDP_DROP;
@@ -441,6 +444,7 @@ int shivashield_xdp(struct xdp_md *ctx)
                         emit_event(EVT_NEW_SRC_FLOOD, &src_ip, &dst_ip,
                                    0, 0, l4proto, ip_ver,
                                    nsc->count, cfg->new_src);
+                        bump_stat(STATS_DROP_RATE, 1);
                         bump_stat(STATS_DROP_PKTS, 1);
                         bump_stat(STATS_DROP_BYTES, pkt_len);
                         return XDP_DROP;
@@ -457,6 +461,7 @@ int shivashield_xdp(struct xdp_md *ctx)
             emit_event(EVT_RATE_EXCEEDED, &src_ip, &dst_ip,
                        0, 0, l4proto, ip_ver, rate, cfg->pps);
             auto_ban(&src_ip, EVT_RATE_EXCEEDED, cfg->ban_duration, now_ns);
+            bump_stat(STATS_DROP_RATE, 1);
             bump_stat(STATS_DROP_PKTS, 1);
             bump_stat(STATS_DROP_BYTES, pkt_len);
             return XDP_DROP;
@@ -491,6 +496,7 @@ int shivashield_xdp(struct xdp_md *ctx)
                 emit_event(EVT_PORT_SCAN, &src_ip, &dst_ip,
                            sport, dport, l4proto, ip_ver, flags, 0);
                 auto_ban(&src_ip, EVT_PORT_SCAN, cfg->ban_duration, now_ns);
+                bump_stat(STATS_DROP_SCAN, 1);
                 bump_stat(STATS_DROP_PKTS, 1);
                 bump_stat(STATS_DROP_BYTES, pkt_len);
                 return XDP_DROP;
@@ -506,6 +512,7 @@ int shivashield_xdp(struct xdp_md *ctx)
                            sport, dport, l4proto, ip_ver,
                            syn_rate, cfg->syn);
                 auto_ban(&src_ip, EVT_SYN_FLOOD, cfg->ban_duration, now_ns);
+                bump_stat(STATS_DROP_RATE, 1);
                 bump_stat(STATS_DROP_PKTS, 1);
                 bump_stat(STATS_DROP_BYTES, pkt_len);
                 return XDP_DROP;
@@ -529,6 +536,7 @@ int shivashield_xdp(struct xdp_md *ctx)
                        sport, dport, l4proto, ip_ver,
                        udp_rate, cfg->udp);
             auto_ban(&src_ip, EVT_UDP_FLOOD, cfg->ban_duration, now_ns);
+            bump_stat(STATS_DROP_RATE, 1);
             bump_stat(STATS_DROP_PKTS, 1);
             bump_stat(STATS_DROP_BYTES, pkt_len);
             return XDP_DROP;
@@ -548,6 +556,7 @@ int shivashield_xdp(struct xdp_md *ctx)
                                udp_rate, 100);
                     auto_ban(&src_ip, EVT_AMPLIFICATION,
                              cfg->ban_duration, now_ns);
+                    bump_stat(STATS_DROP_AMP, 1);
                     bump_stat(STATS_DROP_PKTS, 1);
                     bump_stat(STATS_DROP_BYTES, pkt_len);
                     return XDP_DROP;
@@ -565,6 +574,7 @@ int shivashield_xdp(struct xdp_md *ctx)
                        0, 0, l4proto, ip_ver,
                        icmp_rate, cfg->icmp);
             auto_ban(&src_ip, EVT_ICMP_FLOOD, cfg->ban_duration, now_ns);
+            bump_stat(STATS_DROP_RATE, 1);
             bump_stat(STATS_DROP_PKTS, 1);
             bump_stat(STATS_DROP_BYTES, pkt_len);
             return XDP_DROP;
@@ -591,6 +601,7 @@ int shivashield_xdp(struct xdp_md *ctx)
                             cfg->flow_pps, cfg->flow_bps) == ACTION_DROP) {
             emit_event(EVT_FLOW_EXCEEDED, &src_ip, &dst_ip,
                        sport, dport, l4proto, ip_ver, 0, cfg->flow_pps);
+            bump_stat(STATS_DROP_RATE, 1);
             bump_stat(STATS_DROP_PKTS, 1);
             bump_stat(STATS_DROP_BYTES, pkt_len);
             return XDP_DROP;
@@ -618,6 +629,7 @@ int shivashield_xdp(struct xdp_md *ctx)
                                 pr->pps, pr->bps) == ACTION_DROP) {
                 emit_event(EVT_RATE_EXCEEDED, &src_ip, &dst_ip,
                            sport, dport, l4proto, ip_ver, 0, pr->pps);
+                bump_stat(STATS_DROP_RATE, 1);
                 bump_stat(STATS_DROP_PKTS, 1);
                 bump_stat(STATS_DROP_BYTES, pkt_len);
                 return XDP_DROP;
@@ -633,6 +645,7 @@ int shivashield_xdp(struct xdp_md *ctx)
 drop_malformed:
     emit_event(EVT_MALFORMED, &src_ip, &dst_ip,
                0, 0, l4proto, ip_ver, 0, 0);
+    bump_stat(STATS_DROP_BOGUS_TCP, 1); /* Using BogusTCP bucket for all malformed */
     bump_stat(STATS_DROP_PKTS, 1);
     bump_stat(STATS_DROP_BYTES, pkt_len);
     return XDP_DROP;

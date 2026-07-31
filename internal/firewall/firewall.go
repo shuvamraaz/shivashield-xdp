@@ -84,6 +84,10 @@ type Firewall struct {
 	reader     *ringbuf.Reader
 	cancelFunc context.CancelFunc
 
+	Leaderboard *Leaderboard
+	Anomaly     *AnomalyDetector
+	History     *HistoryLogger
+
 	// BPF maps (shortcuts).
 	configMap    *ebpf.Map
 	statsMap     *ebpf.Map
@@ -102,8 +106,11 @@ func New(cfg *config.Config, bpfObjPath string) (*Firewall, error) {
 		return nil, err
 	}
 	return &Firewall{
-		cfg: cfg,
-		ldr: ldr,
+		cfg:         cfg,
+		ldr:         ldr,
+		Leaderboard: NewLeaderboard(3 * time.Minute),
+		Anomaly:     NewAnomalyDetector(),
+		History:     NewHistoryLogger("/var/log/shivashield_attacks.jsonl"),
 	}, nil
 }
 
@@ -156,8 +163,54 @@ func (fw *Firewall) Start() error {
 	fw.cancelFunc = cancel
 	go fw.consumeEvents(ctx)
 
+	// Start stats monitor for anomaly detection.
+	go fw.monitorStats(ctx)
+
 	log.Println("[firewall] ShivaShield XDP is active")
 	return nil
+}
+
+func (fw *Firewall) monitorStats(ctx context.Context) {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	var prev Stats
+	hasPrev := false
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			curr, err := fw.Stats()
+			if err != nil {
+				continue
+			}
+			if hasPrev {
+				oldState, oldType, oldDur, _, _ := fw.Anomaly.State()
+				
+				rate := CalcRate(prev, curr)
+				fw.Anomaly.Update(rate)
+				
+				newState, _, _, _, spike := fw.Anomaly.State()
+				
+				// If attack just ended, log it to history
+				if oldState == StateUnderAttack && newState == StateNormal {
+					if fw.History != nil {
+						fw.History.LogAttack(AttackSummary{
+							StartTime: time.Now().Add(-oldDur),
+							Duration:  oldDur.String(),
+							Type:      oldType,
+							PeakPPS:   spike, // Approximate based on spike multiplier
+							TopIPs:    fw.Leaderboard.GetTop(5),
+						})
+					}
+				}
+			}
+			prev = curr
+			hasPrev = true
+		}
+	}
 }
 
 // Stop detaches the XDP program and stops all background workers.
@@ -517,6 +570,15 @@ func (fw *Firewall) consumeEvents(ctx context.Context) {
 		if evt == nil {
 			continue
 		}
+
+		// Update leaderboard
+		status := "SUSPICIOUS"
+		if evt.EventType == EvtRateExceeded || evt.EventType == EvtSYNFlood ||
+			evt.EventType == EvtUDPFlood || evt.EventType == EvtICMPFlood ||
+			evt.EventType == EvtPortScan || evt.EventType == EvtAmplification {
+			status = "BANNED"
+		}
+		fw.Leaderboard.RecordEvent(evt, status)
 
 		// Deduplicate: only log the same (event, IP) pair once every 5 seconds.
 		// This prevents SSH lockout from thousands of log lines during floods.

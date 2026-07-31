@@ -13,30 +13,46 @@ import (
 
 // Stat index constants — must match STATS_* in shivashield.h.
 const (
-	StatsPassPkts  = 0
-	StatsDropPkts  = 1
-	StatsPassBytes = 2
-	StatsDropBytes = 3
-	StatsTCPPkts   = 4
-	StatsUDPPkts   = 5
-	StatsICMPPkts  = 6
-	StatsOtherPkts = 7
-	StatsSYNPkts   = 8
-	StatsMax       = 9
+	StatsPassPkts      = 0
+	StatsDropPkts      = 1
+	StatsPassBytes     = 2
+	StatsDropBytes     = 3
+	StatsTCPPkts       = 4
+	StatsUDPPkts       = 5
+	StatsICMPPkts      = 6
+	StatsOtherPkts     = 7
+	StatsSYNPkts       = 8
+	StatsDropBanned    = 9
+	StatsDropRate      = 10
+	StatsDropBogusTCP  = 11
+	StatsDropGeoIP     = 12
+	StatsDropBlackhole = 13
+	StatsDropScan      = 14
+	StatsDropAmp       = 15
+	StatsDropNonIPv4   = 16
+	StatsMax           = 17
 )
 
 // Stats holds aggregated statistics from all CPUs.
 type Stats struct {
-	PassPkts  uint64
-	DropPkts  uint64
-	PassBytes uint64
-	DropBytes uint64
-	TCPPkts   uint64
-	UDPPkts   uint64
-	ICMPPkts  uint64
-	OtherPkts uint64
-	SYNPkts   uint64
-	Timestamp time.Time
+	PassPkts      uint64
+	DropPkts      uint64
+	PassBytes     uint64
+	DropBytes     uint64
+	TCPPkts       uint64
+	UDPPkts       uint64
+	ICMPPkts      uint64
+	OtherPkts     uint64
+	SYNPkts       uint64
+	DropBanned    uint64
+	DropRate      uint64
+	DropBogusTCP  uint64
+	DropGeoIP     uint64
+	DropBlackhole uint64
+	DropScan      uint64
+	DropAmp       uint64
+	DropNonIPv4   uint64
+	Timestamp     time.Time
 }
 
 // StatsRate holds the rate (per second) between two Stats snapshots.
@@ -125,6 +141,22 @@ func ReadStats(statsMap *ebpf.Map) (Stats, error) {
 			s.OtherPkts = total
 		case StatsSYNPkts:
 			s.SYNPkts = total
+		case StatsDropBanned:
+			s.DropBanned = total
+		case StatsDropRate:
+			s.DropRate = total
+		case StatsDropBogusTCP:
+			s.DropBogusTCP = total
+		case StatsDropGeoIP:
+			s.DropGeoIP = total
+		case StatsDropBlackhole:
+			s.DropBlackhole = total
+		case StatsDropScan:
+			s.DropScan = total
+		case StatsDropAmp:
+			s.DropAmp = total
+		case StatsDropNonIPv4:
+			s.DropNonIPv4 = total
 		}
 	}
 	return s, nil
@@ -174,4 +206,48 @@ func IPAddrBytes(family byte, v4 uint32, v6 [4]uint32) []byte {
 		}
 	}
 	return buf
+}
+
+// MapUtilization holds information about map usage.
+type MapUtilization struct {
+	Entries    int
+	MaxEntries int
+	Ratio      float64
+}
+
+// GetMapUtilization returns the utilization of a map by iterating its keys.
+func GetMapUtilization(m *ebpf.Map) (MapUtilization, error) {
+	if m == nil {
+		return MapUtilization{}, fmt.Errorf("map is nil")
+	}
+	info, err := m.Info()
+	if err != nil {
+		return MapUtilization{}, err
+	}
+	
+	maxEntries := int(info.MaxEntries)
+	var count int
+	
+	// Fast path for ringbuf
+	if info.Type == ebpf.RingBuf {
+		// RingBuf MaxEntries is in bytes. We can't trivially count elements.
+		return MapUtilization{MaxEntries: maxEntries, Entries: 0, Ratio: 0}, nil
+	}
+
+	iter := m.Iterate()
+	var key, val []byte
+	for iter.Next(&key, &val) {
+		count++
+	}
+
+	ratio := 0.0
+	if maxEntries > 0 {
+		ratio = float64(count) / float64(maxEntries)
+	}
+
+	return MapUtilization{
+		Entries:    count,
+		MaxEntries: maxEntries,
+		Ratio:      ratio,
+	}, nil
 }
