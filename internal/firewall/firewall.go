@@ -383,6 +383,15 @@ func (fw *Firewall) InitMaps() {
 	}
 }
 
+// LoadMaps exposes the BPF loader's Load method and initializes map pointers.
+func (fw *Firewall) LoadMaps() error {
+	if err := fw.ldr.Load(); err != nil {
+		return err
+	}
+	fw.InitMaps()
+	return nil
+}
+
 // populateWhitelist adds admin IPs, SSH connections, and configured
 // whitelist entries to the whitelist BPF map.
 func (fw *Firewall) populateWhitelist() {

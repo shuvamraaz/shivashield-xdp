@@ -19,7 +19,6 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -421,9 +420,7 @@ func loadLiveFirewall() *firewall.Firewall {
 	}
 	
 	// We must manually attach the maps since we are not calling fw.Start()
-	// The easiest way is to just call fw.ldr.Load() which re-uses pins!
-	if err := fw.ldr.Load(); err == nil {
-		fw.InitMaps()
+	if err := fw.LoadMaps(); err == nil {
 		return fw
 	}
 	return nil
