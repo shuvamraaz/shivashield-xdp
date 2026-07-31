@@ -19,6 +19,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -260,33 +261,62 @@ func cmdWhitelist() {
 	}
 
 	action := os.Args[2]
+	filePath := "/etc/shivashield/whitelist.txt"
+
 	switch action {
 	case "add":
 		if len(os.Args) < 4 {
 			fmt.Println("Usage: shivashield whitelist add <IP>")
 			os.Exit(1)
 		}
-		ip := net.ParseIP(os.Args[3])
+		ipStr := os.Args[3]
+		ip := net.ParseIP(ipStr)
 		if ip == nil {
-			log.Fatalf("invalid IP: %s", os.Args[3])
+			log.Fatalf("invalid IP: %s", ipStr)
 		}
+		
+		// Append to file
+		os.MkdirAll("/etc/shivashield", 0755)
+		f, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err == nil {
+			f.WriteString(ipStr + "\n")
+			f.Close()
+		}
+
+		// Inject into live map if running
+		if fw := loadLiveFirewall(); fw != nil {
+			fw.AddWhitelist(ip)
+		}
+
 		fmt.Printf("Whitelisted: %s\n", ip)
-		fmt.Println("(Note: changes via CLI require the firewall to be running and maps to be pinned)")
 
 	case "remove":
 		if len(os.Args) < 4 {
 			fmt.Println("Usage: shivashield whitelist remove <IP>")
 			os.Exit(1)
 		}
-		ip := net.ParseIP(os.Args[3])
+		ipStr := os.Args[3]
+		ip := net.ParseIP(ipStr)
 		if ip == nil {
-			log.Fatalf("invalid IP: %s", os.Args[3])
+			log.Fatalf("invalid IP: %s", ipStr)
 		}
+		
+		removeIPFromFile(filePath, ipStr)
+
+		if fw := loadLiveFirewall(); fw != nil {
+			fw.RemoveWhitelist(ip)
+		}
+
 		fmt.Printf("Removed from whitelist: %s\n", ip)
 
 	case "list":
-		fmt.Println("Whitelist entries: (reading from pinned BPF maps)")
-		fmt.Println("(requires firewall to be running)")
+		content, err := os.ReadFile(filePath)
+		if err != nil {
+			fmt.Println("Whitelist is empty.")
+			return
+		}
+		fmt.Println("Whitelist entries:")
+		fmt.Print(string(content))
 
 	default:
 		fmt.Printf("Unknown whitelist action: %s\n", action)
@@ -303,15 +333,18 @@ func cmdBlacklist() {
 	}
 
 	action := os.Args[2]
+	filePath := "/etc/shivashield/blacklist.txt"
+
 	switch action {
 	case "add":
 		if len(os.Args) < 4 {
 			fmt.Println("Usage: shivashield blacklist add <IP> [DURATION_SECONDS]")
 			os.Exit(1)
 		}
-		ip := net.ParseIP(os.Args[3])
+		ipStr := os.Args[3]
+		ip := net.ParseIP(ipStr)
 		if ip == nil {
-			log.Fatalf("invalid IP: %s", os.Args[3])
+			log.Fatalf("invalid IP: %s", ipStr)
 		}
 		duration := 0
 		if len(os.Args) >= 5 {
@@ -321,6 +354,21 @@ func cmdBlacklist() {
 				log.Fatalf("invalid duration: %s", os.Args[4])
 			}
 		}
+
+		if duration == 0 {
+			// Append to file for permanent bans
+			os.MkdirAll("/etc/shivashield", 0755)
+			f, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if err == nil {
+				f.WriteString(ipStr + "\n")
+				f.Close()
+			}
+		}
+
+		if fw := loadLiveFirewall(); fw != nil {
+			fw.AddBlacklist(ip, time.Duration(duration)*time.Second)
+		}
+
 		if duration > 0 {
 			fmt.Printf("Blacklisted: %s for %s\n", ip, time.Duration(duration)*time.Second)
 		} else {
@@ -332,20 +380,70 @@ func cmdBlacklist() {
 			fmt.Println("Usage: shivashield blacklist remove <IP>")
 			os.Exit(1)
 		}
-		ip := net.ParseIP(os.Args[3])
+		ipStr := os.Args[3]
+		ip := net.ParseIP(ipStr)
 		if ip == nil {
-			log.Fatalf("invalid IP: %s", os.Args[3])
+			log.Fatalf("invalid IP: %s", ipStr)
+		}
+		
+		removeIPFromFile(filePath, ipStr)
+
+		if fw := loadLiveFirewall(); fw != nil {
+			fw.RemoveBlacklist(ip)
 		}
 		fmt.Printf("Removed from blacklist: %s\n", ip)
 
 	case "list":
-		fmt.Println("Blacklist entries: (reading from pinned BPF maps)")
-		fmt.Println("(requires firewall to be running)")
+		content, err := os.ReadFile(filePath)
+		if err != nil {
+			fmt.Println("Blacklist is empty (no permanent bans).")
+			return
+		}
+		fmt.Println("Permanent blacklist entries:")
+		fmt.Print(string(content))
 
 	default:
 		fmt.Printf("Unknown blacklist action: %s\n", action)
 		os.Exit(1)
 	}
+}
+
+// loadLiveFirewall attempts to load the pinned maps to interact with a running firewall
+func loadLiveFirewall() *firewall.Firewall {
+	if _, err := os.Stat(loader.PinPath); err != nil {
+		return nil // Not running
+	}
+	cfg := config.DefaultConfig()
+	// Create firewall object purely for map interactions, don't start it
+	fw, err := firewall.New(cfg, "")
+	if err != nil {
+		return nil
+	}
+	
+	// We must manually attach the maps since we are not calling fw.Start()
+	// The easiest way is to just call fw.ldr.Load() which re-uses pins!
+	if err := fw.ldr.Load(); err == nil {
+		fw.InitMaps()
+		return fw
+	}
+	return nil
+}
+
+// removeIPFromFile removes all lines matching the IP exactly
+func removeIPFromFile(path, targetIP string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	lines := strings.Split(string(data), "\n")
+	var newLines []string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != targetIP && trimmed != "" {
+			newLines = append(newLines, line)
+		}
+	}
+	os.WriteFile(path, []byte(strings.Join(newLines, "\n")+"\n"), 0644)
 }
 
 // ── blackhole ─────────────────────────────────────────────────────────

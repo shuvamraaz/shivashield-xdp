@@ -5,11 +5,15 @@
 package firewall
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
 	"log"
 	"net"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/cilium/ebpf"
@@ -111,16 +115,7 @@ func (fw *Firewall) Start() error {
 	if err := fw.ldr.Load(); err != nil {
 		return fmt.Errorf("load BPF: %w", err)
 	}
-
-	coll := fw.ldr.Collection()
-	fw.configMap = coll.Maps["config_map"]
-	fw.statsMap = coll.Maps["stats_map"]
-	fw.blacklistMap = coll.Maps["blacklist_map"]
-	fw.whitelistMap = coll.Maps["whitelist_map"]
-	fw.knownIPsMap = coll.Maps["known_ips_map"]
-	fw.eventsMap = coll.Maps["events_map"]
-	fw.geoIPMap = coll.Maps["geoip_map"]
-	fw.portRulesMap = coll.Maps["port_rules_map"]
+	fw.InitMaps()
 
 	// Push initial configuration to the config_map.
 	if err := fw.pushConfig(); err != nil {
@@ -133,6 +128,9 @@ func (fw *Firewall) Start() error {
 
 	// Populate port rules.
 	fw.populatePortRules()
+
+	// Load persistent whitelist and blacklist from text files.
+	fw.loadPersistentIPs()
 
 	// Attach to interfaces.
 	mode := loader.ParseXDPMode(fw.cfg.XDPMode)
@@ -264,6 +262,53 @@ func (fw *Firewall) BanManager() *BanManager {
 	return fw.banMgr
 }
 
+// loadPersistentIPs reads /etc/shivashield/whitelist.txt and blacklist.txt
+// and loads them into the BPF maps.
+func (fw *Firewall) loadPersistentIPs() {
+	// Whitelist
+	if wf, err := os.Open("/etc/shivashield/whitelist.txt"); err == nil {
+		scanner := bufio.NewScanner(wf)
+		for scanner.Scan() {
+			ipStr := strings.TrimSpace(scanner.Text())
+			if ipStr == "" || strings.HasPrefix(ipStr, "#") {
+				continue
+			}
+			if ip, _, err := util.ParseIP(ipStr); err == nil {
+				fw.AddWhitelist(ip)
+			}
+		}
+		wf.Close()
+	}
+
+	// Blacklist
+	if bf, err := os.Open("/etc/shivashield/blacklist.txt"); err == nil {
+		scanner := bufio.NewScanner(bf)
+		for scanner.Scan() {
+			ipStr := strings.TrimSpace(scanner.Text())
+			if ipStr == "" || strings.HasPrefix(ipStr, "#") {
+				continue
+			}
+			if ip, _, err := util.ParseIP(ipStr); err == nil {
+				// We don't have the ban manager started yet, so we write directly to the map
+				isV6 := ip.To4() == nil
+				var key []byte
+				if isV6 {
+					v6 := util.IPv6ToUint32s(ip)
+					key = IPAddrBytes(6, 0, v6)
+				} else {
+					v4 := util.IPToUint32(ip)
+					key = IPAddrBytes(4, v4, [4]uint32{})
+				}
+				
+				// Permanent ban via map (timestamp = 0)
+				val := make([]byte, 16)
+				fw.blacklistMap.Put(key, val)
+			}
+		}
+		bf.Close()
+	}
+}
+
 // pushConfig serializes the current config into the BPF config_map.
 func (fw *Firewall) pushConfig() error {
 	if fw.configMap == nil {
@@ -319,6 +364,24 @@ func (fw *Firewall) pushConfig() error {
 
 	key := uint32(0)
 	return fw.configMap.Put(key, buf)
+}
+
+// InitMaps initializes the map pointers from the loaded collection.
+// It is public so the CLI can bind maps without starting the full engine.
+func (fw *Firewall) InitMaps() {
+	if coll := fw.ldr.Collection(); coll != nil {
+		fw.configMap = coll.Maps["config_map"]
+		fw.statsMap = coll.Maps["stats_map"]
+		fw.blacklistMap = coll.Maps["blacklist_map"]
+		fw.whitelistMap = coll.Maps["whitelist_map"]
+		fw.knownIPsMap = coll.Maps["known_ips_map"]
+		fw.eventsMap = coll.Maps["events_map"]
+		fw.geoIPMap = coll.Maps["geoip_map"]
+		fw.portRulesMap = coll.Maps["port_rules_map"]
+
+		// Initialize banMgr purely for CLI map writes if needed
+		fw.banMgr = NewBanManager(fw.blacklistMap, 5*time.Second)
+	}
 }
 
 // populateWhitelist adds admin IPs, SSH connections, and configured
