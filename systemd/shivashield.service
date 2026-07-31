@@ -1,18 +1,17 @@
 [Unit]
 Description=ShivaShield XDP — Advanced XDP/eBPF Firewall
 Documentation=https://github.com/shuvamraaz/shivashield-xdp
-# Attach as early as possible, before networking is considered up.
 After=network-pre.target
 Before=network.target
 Wants=network-pre.target
 
 [Service]
-Type=oneshot
-RemainAfterExit=yes
+Type=simple
 ExecStart=/usr/local/bin/shivashield load --no-tui --config /etc/shivashield/shivashield.yaml
 ExecStop=/usr/local/bin/shivashield unload
-# Allow SIGHUP for hot-reload.
 ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
