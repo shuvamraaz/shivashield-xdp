@@ -115,11 +115,24 @@ sudo shivashield load
 # Attach headless (for systemd/background)
 sudo shivashield load --no-tui --config /etc/shivashield/shivashield.yaml
 
-# Detach firewall
+# Detach firewall manually
 sudo shivashield unload
 
 # Show status
 sudo shivashield status
+
+# Manage background service (Systemd)
+sudo systemctl start shivashield
+sudo systemctl stop shivashield
+sudo systemctl restart shivashield
+sudo systemctl status shivashield
+
+# View live dashboard when service is running
+# (Must stop the background service first to release the port)
+sudo systemctl stop shivashield
+sudo shivashield load
+# ... press Q when done ...
+sudo systemctl start shivashield
 
 # Manage whitelist
 sudo shivashield whitelist add 203.0.113.10
