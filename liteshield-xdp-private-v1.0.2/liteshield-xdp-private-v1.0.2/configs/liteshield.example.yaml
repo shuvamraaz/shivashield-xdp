@@ -1,0 +1,57 @@
+# LiteShield XDP — example configuration
+# Copy to /etc/liteshield/liteshield.yaml and adjust.
+
+# Network interface to attach the XDP program to.
+interface: eth0
+
+# XDP attach mode:
+#   auto    - try native (driver), fall back to generic (SKB)
+#   native  - driver mode only (best performance)
+#   generic - SKB mode, works everywhere, slower
+xdp_mode: auto
+
+# Rate limits. pps/syn/udp/icmp are per source IP per second;
+# new_src is a global limit of new source IPs per second;
+# flow_pps/flow_bps are per-flow (src+dst+proto+ports) limits.
+thresholds:
+  pps: 200000     # max total packets/sec per source IP
+  syn: 2000       # max TCP SYN/sec per source IP
+  udp: 10000      # max UDP packets/sec per source IP
+  icmp: 500       # max ICMP packets/sec per source IP
+  new_src: 500    # max new source IPs/sec (global)
+  flow_pps: 20000 # max packets/sec per flow
+  flow_bps: 20000000 # max bytes/sec per flow (~20MB/s)
+
+# Auto-ban duration (seconds) after a threshold is exceeded.
+# 0 disables auto-ban (packets are still dropped while over the limit).
+ban_duration_sec: 300
+
+# Discord webhook alerts (optional). Leave webhook_url empty to disable.
+discord:
+  webhook_url: ""
+  # Events to notify on: rule_trigger, ip_banned, new_source
+  events: [rule_trigger, ip_banned, new_source]
+  # Minimum seconds between two alerts of the same type.
+  min_interval_sec: 10
+
+# Blackhole mode: when enabled, only source IPs known before activation
+# (plus admin IPs) may pass; everything else is dropped at the XDP hook.
+# Toggle at runtime with `liteshield blackhole on|off` or the TUI space bar.
+blackhole:
+  enabled: false
+  # Admin IPs that are never locked out (permanent known_ips_map entries).
+  # In addition to this list, whitelist entries, sshd ListenAddress and
+  # live SSH connections are auto-detected on load.
+  admin_ips: []
+  # admin_ips: ["203.0.113.10", "2001:db8::1"]
+
+# License (required). LiteShield is paid software — the XDP program
+# refuses to load without a valid license key. Activate with:
+#   liteshield license activate PL-XXXX-XXXX-XXXX-XXXX
+license:
+  key: ""
+  # Where a successful validation is cached for offline use.
+  cache_path: /var/lib/liteshield/license.json
+  # Days a cached license stays usable while the license server is
+  # unreachable.
+  grace_period_days: 7
