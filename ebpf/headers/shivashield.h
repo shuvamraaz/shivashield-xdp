@@ -37,10 +37,11 @@ typedef int64_t  __s64;
 #define MAX_FLOW_ENTRIES     500000  /* per-flow counters             */
 #define MAX_BLACKLIST        100000  /* banned IPs                    */
 #define MAX_WHITELIST         10000  /* permanently allowed IPs       */
-#define MAX_KNOWN_IPS       1000000  /* blackhole known-IPs           */
+#define MAX_KNOWN_IPS         100000  /* blackhole known-IPs (reduced) */
 #define MAX_PORT_RULES          256  /* per-port rate rules           */
 #define MAX_GEOIP_ENTRIES    200000  /* GeoIP LPM trie entries        */
-#define MAX_EVENTS_RINGBUF  (1<<20) /* 1 MB ring buffer              */
+#define MAX_EVENTS_RINGBUF  (1<<22) /* 4 MB ring buffer (was 1MB)    */
+#define MAX_EVT_THROTTLE     200000  /* event throttle entries        */
 
 /* Action verdicts (mirrored in Go). */
 #define ACTION_PASS  0

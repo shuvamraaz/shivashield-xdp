@@ -136,6 +136,15 @@ struct {
     __uint(max_entries, MAX_EVENTS_RINGBUF);
 } events_map SEC(".maps");
 
+/* Event throttle map — rate-limits events to 1 per second per (IP+type).
+   Prevents ring buffer saturation during floods. */
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(max_entries, MAX_EVT_THROTTLE);
+    __type(key, __u64);
+    __type(value, __u64); /* last_emit_ns */
+} event_throttle_map SEC(".maps");
+
 /* New-source-IP global counter (single element). */
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
@@ -157,18 +166,29 @@ static FORCE_INLINE void bump_stat(__u32 idx, __u64 add) {
         *val += add;
 }
 
-/* Emit an event to the ring buffer.  Best-effort: if the ringbuf is
-   full the event is silently dropped (we never block the data path). */
+/* Emit an event to the ring buffer. Throttled to 1 event per second per
+   (src IP + event type). Prevents ring buffer saturation during floods.
+   Best-effort: if the ringbuf is full the event is silently dropped. */
 static FORCE_INLINE void emit_event(
     __u8 type,
     struct ss_ipaddr *src, struct ss_ipaddr *dst,
     __u16 sport, __u16 dport, __u8 proto, __u8 ip_ver,
     __u64 rate, __u64 threshold)
 {
+    /* Build throttle key: lower 32 bits = IPv4 addr, upper 32 = event type. */
+    __u64 tkey = src ? (((__u64)src->addr.v4) | ((__u64)type << 32)) : (__u64)type;
+
+    __u64 now2 = bpf_ktime_get_ns();
+    __u64 *last = bpf_map_lookup_elem(&event_throttle_map, &tkey);
+    if (last && (now2 - *last) < WINDOW_NS)
+        return; /* throttled — already emitted within last second */
+
+    bpf_map_update_elem(&event_throttle_map, &tkey, &now2, BPF_ANY);
+
     struct ss_event *e = bpf_ringbuf_reserve(&events_map, sizeof(*e), 0);
     if (!e)
         return;
-    e->timestamp_ns = bpf_ktime_get_ns();
+    e->timestamp_ns = now2;
     if (src) __builtin_memcpy(&e->src, src, sizeof(*src));
     if (dst) __builtin_memcpy(&e->dst, dst, sizeof(*dst));
     e->sport      = sport;
