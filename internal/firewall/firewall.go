@@ -481,6 +481,14 @@ func (fw *Firewall) consumeEvents(ctx context.Context) {
 	}
 	fw.reader = reader
 
+	// dedupSeen tracks last log time per (eventType, srcIP) to avoid spamming logs during floods.
+	type dedupKey struct {
+		evt uint8
+		ip  string
+	}
+	dedupSeen := make(map[dedupKey]time.Time)
+	const dedupTTL = 5 * time.Second
+
 	log.Println("[firewall] event consumer started")
 	for {
 		select {
@@ -510,11 +518,26 @@ func (fw *Firewall) consumeEvents(ctx context.Context) {
 			continue
 		}
 
-		log.Printf("[event] %s src=%s dst=%s sport=%d dport=%d rate=%d threshold=%d",
-			EventName(evt.EventType),
-			evt.SrcIP, evt.DstIP,
-			evt.SPort, evt.DPort,
-			evt.Rate, evt.Threshold)
+		// Deduplicate: only log the same (event, IP) pair once every 5 seconds.
+		// This prevents SSH lockout from thousands of log lines during floods.
+		dkey := dedupKey{evt: evt.EventType, ip: evt.SrcIP}
+		if last, seen := dedupSeen[dkey]; !seen || time.Since(last) >= dedupTTL {
+			dedupSeen[dkey] = time.Now()
+			log.Printf("[event] %s src=%s dst=%s sport=%d dport=%d rate=%d threshold=%d",
+				EventName(evt.EventType),
+				evt.SrcIP, evt.DstIP,
+				evt.SPort, evt.DPort,
+				evt.Rate, evt.Threshold)
+
+			// Prune stale dedup entries periodically.
+			if len(dedupSeen) > 1000 {
+				for k, v := range dedupSeen {
+					if time.Since(v) >= dedupTTL {
+						delete(dedupSeen, k)
+					}
+				}
+			}
+		}
 
 		// Forward to Discord alerter.
 		if fw.alerter != nil {
