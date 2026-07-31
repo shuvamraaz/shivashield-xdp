@@ -345,9 +345,10 @@ make -C "$SRC_DIR" all
 
 # ---------------------------------------------------------------- install ---
 log "Installing to /opt/shivashield ..."
-install -d /opt/shivashield /etc/shivashield /var/lib/shivashield
-install -m 0755 "$SRC_DIR/bin/shivashield" /opt/shivashield/shivashield
-ln -sf /opt/shivashield/shivashield /usr/local/bin/shivashield
+	install -d /opt/shivashield /etc/shivashield /var/lib/shivashield
+	install -m 0755 "$SRC_DIR/bin/shivashield" /opt/shivashield/shivashield
+	cp "$SRC_DIR/bin/shivashield.bpf.o" /opt/shivashield/shivashield.bpf.o
+	ln -sf /opt/shivashield/shivashield /usr/local/bin/shivashield
 
 if [ -f /etc/shivashield/shivashield.yaml ]; then
 	warn "Existing config found — backing up to shivashield.yaml.bak"
