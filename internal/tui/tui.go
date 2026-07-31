@@ -218,51 +218,50 @@ func (d *Dashboard) render() {
 	sb.WriteString(cursorHome)
 	sb.WriteString(clearScreen)
 
-	// ── Banner ──
+	// -- Banner (pure ASCII) --
 	sb.WriteString(cyan + bold)
 	sb.WriteString("\n")
-	sb.WriteString("      ╔═══════════════════════════════════════════╗\n")
-	sb.WriteString("      ║   ░██████╗██╗░░██╗██╗██╗░░░██╗░█████╗   ║\n")
-	sb.WriteString("      ║   ██╔════╝██║░░██║██║██║░░░██║██╔══██╗  ║\n")
-	sb.WriteString("      ║   ╚█████╗░████████║██║╚██╗██╔╝███████║  ║\n")
-	sb.WriteString("      ║   ░╚═══██╗██╔══██║██║░╚████╔╝░██╔══██║  ║\n")
-	sb.WriteString("      ║   ██████╔╝██║░░██║██║░░╚██╔╝░░██║░░██║  ║\n")
-	sb.WriteString("      ║   ╚═════╝░╚═╝░░╚═╝╚═╝░░░╚═╝░░░╚═╝░░╚═╝  ║\n")
-	sb.WriteString("      ║       S H I E L D  ·  X D P  v1.0       ║\n")
-	sb.WriteString("      ╚═══════════════════════════════════════════╝\n")
+	sb.WriteString("   +=============================================+\n")
+	sb.WriteString("   |   ____ _   _ _____     ___    ____  _   _   |\n")
+	sb.WriteString("   |  / ___| | | |_ _\\ \\   / / \\  / ___|| | | |  |\n")
+	sb.WriteString("   |  \\___ \\| |_| || | \\ \\ / / _ \\ \\___ \\| |_| |  |\n")
+	sb.WriteString("   |   ___) |  _  || |  \\ V / ___ \\ ___) |  _  |  |\n")
+	sb.WriteString("   |  |____/|_| |_|___|  \\_/_/   \\_\\____/|_| |_|  |\n")
+	sb.WriteString("   |         S H I E L D  -  X D P  v1.0         |\n")
+	sb.WriteString("   +=============================================+\n")
 	sb.WriteString(reset)
 
-	// ── Status Bar ──
+	// -- Status Bar --
 	sb.WriteString("\n")
 	if bh {
-		sb.WriteString(fmt.Sprintf("  %s%s ⬤ BLACKHOLE MODE ACTIVE %s", bold, bgRed+" "+white, reset))
+		sb.WriteString(fmt.Sprintf("  %s%s [!] BLACKHOLE MODE ACTIVE %s", bold, bgRed+" "+white, reset))
 	} else {
-		sb.WriteString(fmt.Sprintf("  %s%s ⬤ PROTECTING %s", bold, bgGreen+" "+white, reset))
+		sb.WriteString(fmt.Sprintf("  %s%s [*] PROTECTING %s", bold, bgGreen+" "+white, reset))
 	}
-	sb.WriteString(fmt.Sprintf("   Bans: %s%d%s  │  Whitelist: %s%d%s\n",
+	sb.WriteString(fmt.Sprintf("   Bans: %s%d%s  |  Whitelist: %s%d%s\n",
 		yellow, blCount, reset,
 		green, wlCount, reset))
 
-	// ── Packet Rates ──
-	sb.WriteString(fmt.Sprintf("\n  %s── Traffic ──────────────────────────────%s\n", bold+white, reset))
-	sb.WriteString(fmt.Sprintf("  %s✓ Pass:%s  %s%-12s%s  %s/s\n",
+	// -- Packet Rates --
+	sb.WriteString(fmt.Sprintf("\n  %s-- Traffic ----------------------------------%s\n", bold+white, reset))
+	sb.WriteString(fmt.Sprintf("  %s+ Pass:%s  %s%-12s%s  %s/s\n",
 		green, reset, bold, util.FormatRate(rate.PassPPS), reset,
 		util.FormatBytes(rate.PassBPS)))
-	sb.WriteString(fmt.Sprintf("  %s✗ Drop:%s  %s%-12s%s  %s/s\n",
+	sb.WriteString(fmt.Sprintf("  %sx Drop:%s  %s%-12s%s  %s/s\n",
 		red, reset, bold, util.FormatRate(rate.DropPPS), reset,
 		util.FormatBytes(rate.DropBPS)))
 
-	// ── Totals ──
-	sb.WriteString(fmt.Sprintf("\n  %s── Totals ──────────────────────────────%s\n", bold+white, reset))
-	sb.WriteString(fmt.Sprintf("  Passed: %s%s%s pkts  (%s)\n",
+	// -- Totals --
+	sb.WriteString(fmt.Sprintf("\n  %s-- Totals ----------------------------------%s\n", bold+white, reset))
+	sb.WriteString(fmt.Sprintf("  Passed:  %s%s%s pkts  (%s)\n",
 		green, formatCount(stats.PassPkts), reset,
 		util.FormatBytes(stats.PassBytes)))
 	sb.WriteString(fmt.Sprintf("  Dropped: %s%s%s pkts  (%s)\n",
 		red, formatCount(stats.DropPkts), reset,
 		util.FormatBytes(stats.DropBytes)))
 
-	// ── Protocol Breakdown ──
-	sb.WriteString(fmt.Sprintf("\n  %s── Protocols ────────────────────────────%s\n", bold+white, reset))
+	// -- Protocol Breakdown --
+	sb.WriteString(fmt.Sprintf("\n  %s-- Protocols --------------------------------%s\n", bold+white, reset))
 	totalPPS := rate.TCPPPS + rate.UDPPPS + rate.ICMPPPS
 	if totalPPS == 0 {
 		totalPPS = 1
@@ -276,12 +275,12 @@ func (d *Dashboard) render() {
 	sb.WriteString(fmt.Sprintf("  SYN:  %s%-10s%s\n",
 		red, util.FormatRate(rate.SYNPPS), reset))
 
-	// ── Controls ──
-	sb.WriteString(fmt.Sprintf("\n  %s── Controls ────────────────────────────%s\n", dimWhite, reset))
-	sb.WriteString(fmt.Sprintf("  %s[SPACE]%s Blackhole  │  %s[Q]%s Quit  │  %s[Ctrl+C]%s Stop\n",
+	// -- Controls --
+	sb.WriteString(fmt.Sprintf("\n  %s-- Controls --------------------------------%s\n", dimWhite, reset))
+	sb.WriteString(fmt.Sprintf("  %s[SPACE]%s Blackhole  |  %s[Q]%s Quit  |  %s[Ctrl+C]%s Stop\n",
 		bold, reset, bold, reset, bold, reset))
 
-	// ── Uptime ──
+	// -- Refresh --
 	if rate.Duration > 0 {
 		sb.WriteString(fmt.Sprintf("\n  %sRefresh: %.0fms%s\n", dimWhite, rate.Duration.Seconds()*1000, reset))
 	}
@@ -298,8 +297,8 @@ func bar(value, total uint64, width int, color string) string {
 	if filled > width {
 		filled = width
 	}
-	return color + strings.Repeat("█", filled) +
-		dimWhite + strings.Repeat("░", width-filled) + reset
+	return color + strings.Repeat("#", filled) +
+		dimWhite + strings.Repeat("-", width-filled) + reset
 }
 
 // formatCount formats a large number with commas.
