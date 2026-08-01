@@ -50,9 +50,9 @@ die()  { printf '\033[31m[✗]\033[0m %s\n' "$*" >&2; exit 1; }
 
 read_input() {
 	if [ -t 0 ]; then
-		read -r "$1" < /dev/tty || true
-	else
 		read -r "$1" || true
+	else
+		read -r "$1" </dev/tty || true
 	fi
 }
 
