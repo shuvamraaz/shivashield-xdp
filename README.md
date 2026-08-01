@@ -15,6 +15,7 @@ ShivaShield XDP is a blazing-fast, drop-in DDoS mitigation firewall powered by e
 - **🕳️ Auto-Blackhole Mode:** Automatically transitions into a strict whitelist-only lockdown during massive distributed attacks.
 - **📊 Live TUI Dashboard:** Real-time terminal UI showing PPS/BPS metrics, active drop reasons, and a live attacker leaderboard.
 - **🔔 Discord Alerts:** Webhook integration for instant notifications when rate limits trigger or blackhole mode activates.
+- **🔎 Auto-PCAP Forensics:** Automatically captures the first 1,000 packets of a DDoS attack to a .pcap file for analysis in Wireshark.
 
 ---
 
