@@ -415,6 +415,7 @@ features:
   port_scan_detection: $PORT_SCAN
   amplification_detection: $AMP_DET
   auto_pcap: true
+  dynamic_thresholds: true
 
 discord:
   webhook_url: "$WEBHOOK"

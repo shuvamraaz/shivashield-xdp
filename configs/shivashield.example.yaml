@@ -36,6 +36,8 @@ features:
   amplification_detection: true
   # Automatically capture 1000 packets into a .pcap file when an attack starts.
   auto_pcap: true
+  # Dynamically scale rate limits during attacks based on machine learning baseline.
+  dynamic_thresholds: true
 
 # Discord webhook alerts (optional). Leave webhook_url empty to disable.
 discord:

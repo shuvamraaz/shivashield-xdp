@@ -97,6 +97,10 @@ type Firewall struct {
 	belowThresholdSince time.Time // when PPS first dropped below trigger
 	belowThresholdSet   bool      // whether belowThresholdSince is valid
 
+	// Dynamic Threshold state.
+	originalPPS         uint64
+	dynamicPPSActive    bool
+
 	pcapRunning         atomic.Bool // prevent concurrent tcpdump processes
 
 	// BPF maps (shortcuts).
@@ -216,12 +220,35 @@ func (fw *Firewall) monitorStats(ctx context.Context) {
 							TopIPs:    fw.Leaderboard.GetTop(5),
 						})
 					}
+
+					// Restore Dynamic Thresholds
+					if fw.dynamicPPSActive {
+						fw.cfg.Thresholds.PPS = fw.originalPPS
+						fw.dynamicPPSActive = false
+						fw.pushConfig()
+					}
 				}
 
 				// If attack just started, trigger Auto-PCAP
 				if oldState == StateNormal && newState == StateUnderAttack {
 					if fw.pcapRunning.CompareAndSwap(false, true) {
 						go fw.triggerAutoPCAP()
+					}
+
+					// Apply Dynamic Thresholds
+					if fw.cfg.Features.DynamicThresholds && !fw.dynamicPPSActive {
+						fw.originalPPS = fw.cfg.Thresholds.PPS
+						fw.dynamicPPSActive = true
+						
+						// Calculate Dynamic Limit (Baseline * 5, minimum 10,000)
+						_, _, _, base, _ := fw.Anomaly.State()
+						dynPPS := uint64(base * 5.0)
+						if dynPPS < 10000 {
+							dynPPS = 10000
+						}
+						
+						fw.cfg.Thresholds.PPS = dynPPS
+						fw.pushConfig()
 					}
 				}
 

@@ -55,6 +55,7 @@ type Features struct {
 	PortScanDetection      bool `yaml:"port_scan_detection"`
 	AmplificationDetection bool `yaml:"amplification_detection"`
 	AutoPCAP               bool `yaml:"auto_pcap"`
+	DynamicThresholds      bool `yaml:"dynamic_thresholds"`
 }
 
 // DiscordConfig holds Discord webhook alert settings.
