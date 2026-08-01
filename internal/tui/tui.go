@@ -316,6 +316,7 @@ func (d *Dashboard) updateUI(rate firewall.StatsRate, curr firewall.Stats) {
   Auto-Blackhole: %v (Trigger: %d)
   Port Scan Det:  %v
   Amp Det:        %v
+  Auto-PCAP:      %v
   GeoIP Block:    %v`,
 			d.fw.Config().XDPMode,
 			d.fw.Config().BanDurationSec,
@@ -330,6 +331,7 @@ func (d *Dashboard) updateUI(rate firewall.StatsRate, curr firewall.Stats) {
 			d.fw.Config().AutoBlackhole.Enabled, d.fw.Config().AutoBlackhole.TriggerPPS,
 			d.fw.Config().Features.PortScanDetection,
 			d.fw.Config().Features.AmplificationDetection,
+			d.fw.Config().Features.AutoPCAP,
 			d.fw.Config().GeoIP.Enabled)
 		d.configView.SetText(cfgText)
 	})
