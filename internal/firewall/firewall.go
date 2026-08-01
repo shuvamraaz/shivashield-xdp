@@ -471,20 +471,20 @@ func (fw *Firewall) pushConfig() error {
 	//   _pad u32 = offset 76..79
 	//   Total = 80 bytes
 
-	// Rate-limit maps are PERCPU: each CPU counts independently, so we
-	// must divide the user-visible threshold by NumCPU to get the
-	// per-CPU threshold that triggers at the correct aggregate rate.
-	numCPU := runtime.NumCPU()
-	log.Printf("[firewall] pushing config (numCPU=%d, thresholds scaled to per-CPU)", numCPU)
+	// We no longer divide by NumCPU to avoid confusing UX.
+	// A threshold of 10k in the config will mean 10k per-core.
+	// While this technically allows an attacker to send up to (10k * NumCPU)
+	// if they perfectly spray all RX queues, it is completely safe for the server
+	// and makes the configuration much more intuitive for the user.
 
 	buf := make([]byte, 80)
-	binary.LittleEndian.PutUint64(buf[0:8], perCPUThreshold(fw.cfg.Thresholds.PPS))
-	binary.LittleEndian.PutUint64(buf[8:16], perCPUThreshold(fw.cfg.Thresholds.SYN))
-	binary.LittleEndian.PutUint64(buf[16:24], perCPUThreshold(fw.cfg.Thresholds.UDP))
-	binary.LittleEndian.PutUint64(buf[24:32], perCPUThreshold(fw.cfg.Thresholds.ICMP))
-	binary.LittleEndian.PutUint64(buf[32:40], perCPUThreshold(fw.cfg.Thresholds.NewSrc))
-	binary.LittleEndian.PutUint64(buf[40:48], perCPUThreshold(fw.cfg.Thresholds.FlowPPS))
-	binary.LittleEndian.PutUint64(buf[48:56], perCPUThreshold(fw.cfg.Thresholds.FlowBPS))
+	binary.LittleEndian.PutUint64(buf[0:8], uint64(fw.cfg.Thresholds.PPS))
+	binary.LittleEndian.PutUint64(buf[8:16], uint64(fw.cfg.Thresholds.SYN))
+	binary.LittleEndian.PutUint64(buf[16:24], uint64(fw.cfg.Thresholds.UDP))
+	binary.LittleEndian.PutUint64(buf[24:32], uint64(fw.cfg.Thresholds.ICMP))
+	binary.LittleEndian.PutUint64(buf[32:40], uint64(fw.cfg.Thresholds.NewSrc))
+	binary.LittleEndian.PutUint64(buf[40:48], uint64(fw.cfg.Thresholds.FlowPPS))
+	binary.LittleEndian.PutUint64(buf[48:56], uint64(fw.cfg.Thresholds.FlowBPS))
 	binary.LittleEndian.PutUint32(buf[56:60], fw.cfg.BanDurationSec)
 	binary.LittleEndian.PutUint32(buf[60:64], bhFlag)
 	binary.LittleEndian.PutUint32(buf[64:68], geoFlag)
