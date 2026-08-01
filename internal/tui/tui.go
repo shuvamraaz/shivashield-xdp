@@ -170,6 +170,19 @@ func (d *Dashboard) updater() {
 	}
 }
 
+func formatBytes(b uint64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := uint64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.2f %cB", float64(b)/float64(div), "KMGTPE"[exp])
+}
+
 func (d *Dashboard) updateUI(rate firewall.StatsRate, curr firewall.Stats) {
 	d.app.QueueUpdateDraw(func() {
 		// --- Header ---
@@ -197,6 +210,10 @@ func (d *Dashboard) updateUI(rate firewall.StatsRate, curr firewall.Stats) {
   TCP PPS:  %-10d  UDP PPS:   %-10d
   ICMP PPS: %-10d  SYN PPS:   %-10d
 
+[cyan]Cumulative Data:[white]
+  Passed:    %-10s
+  Dropped:   %-10s
+
 [cyan]Drop Paths (Total):[white]
   Banned:    %-10d
   RateLimit: %-10d
@@ -208,6 +225,7 @@ func (d *Dashboard) updateUI(rate firewall.StatsRate, curr firewall.Stats) {
 			rate.PassBPS, rate.DropBPS,
 			rate.TCPPPS, rate.UDPPPS,
 			rate.ICMPPPS, rate.SYNPPS,
+			formatBytes(curr.PassBytes), formatBytes(curr.DropBytes),
 			curr.DropBanned, curr.DropRate, curr.DropGeoIP, curr.DropScan, curr.DropAmp, curr.DropBogusTCP)
 		d.dashStats.SetText(dashText)
 
