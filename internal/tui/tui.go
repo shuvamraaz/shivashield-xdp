@@ -28,6 +28,7 @@ type Dashboard struct {
 	ppsDropChart *tview.TextView
 	historyView  *tview.TextView
 	configView   *tview.TextView
+	mapView      *tview.TextView
 
 	// Data history for charts
 	ppsPassHistory []float64
@@ -56,6 +57,7 @@ func (d *Dashboard) Run() {
 	d.pages.AddPage("status", d.buildStatusPage(), true, false)
 	d.pages.AddPage("history", d.buildHistoryPage(), true, false)
 	d.pages.AddPage("config", d.buildConfigPage(), true, false)
+	d.pages.AddPage("map", d.buildMapPage(), true, false)
 
 	layout := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(d.headerText, 1, 0, false).
@@ -76,6 +78,8 @@ func (d *Dashboard) Run() {
 			d.pages.SwitchToPage("history")
 		case '5':
 			d.pages.SwitchToPage("config")
+		case '6':
+			d.pages.SwitchToPage("map")
 		case ' ':
 			d.fw.SetBlackhole(!d.fw.IsBlackhole())
 		}
@@ -201,7 +205,7 @@ func (d *Dashboard) updateUI(rate firewall.StatsRate, curr firewall.Stats) {
 			stateColor = "[red][blink]"
 		}
 
-		d.headerText.SetText(fmt.Sprintf("[white]ShivaShield XDP | %s%s[-] | [yellow]1[white]:Dash [yellow]2[white]:Live [yellow]3[white]:Status [yellow]4[white]:Hist [yellow]5[white]:Conf [yellow]q[white]:Quit | Blackhole: %s", stateColor, state, bhStatus))
+		d.headerText.SetText(fmt.Sprintf("[white]ShivaShield XDP | %s%s[-] | [yellow]1[white]:Dash [yellow]2[white]:Live [yellow]3[white]:Status [yellow]4[white]:Hist [yellow]5[white]:Conf [yellow]6[white]:Map [yellow]q[white]:Quit | Blackhole: %s", stateColor, state, bhStatus))
 
 		// --- Dash ---
 		dashText := fmt.Sprintf(`[cyan]Live Metrics:[white]
@@ -336,5 +340,18 @@ func (d *Dashboard) updateUI(rate firewall.StatsRate, curr firewall.Stats) {
 			d.fw.Config().Features.DynamicThresholds,
 			d.fw.Config().GeoIP.Enabled)
 		d.configView.SetText(cfgText)
+
+		// --- Map ---
+		var bannedIPs []string
+		for _, a := range d.fw.Leaderboard.GetTop(50) {
+			if a.Status == "BANNED" {
+				bannedIPs = append(bannedIPs, a.IP)
+			}
+		}
+		if len(bannedIPs) > 0 {
+			d.mapView.SetText(renderMap(bannedIPs))
+		} else {
+			d.mapView.SetText(renderMap(nil))
+		}
 	})
 }
