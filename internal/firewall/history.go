@@ -63,14 +63,35 @@ func (h *HistoryLogger) ReadHistory(limit int) ([]AttackSummary, error) {
 	}
 
 	var results []AttackSummary
-	lines := 0
-	for i := len(data) - 1; i >= 0; i-- {
-		if data[i] == '\n' {
-			lines++
-		}
+	
+	// Fast parsing using reverse splitting
+	strData := string(data)
+	if len(strData) == 0 {
+		return results, nil
 	}
 	
-	// Basic parsing: split by newline and decode backwards.
-	// (For production, consider a proper reverse line reader or scanner).
-	return results, nil // Simplified for now
+	// Split into lines
+	var lines []string
+	start := 0
+	for i := 0; i < len(strData); i++ {
+		if strData[i] == '\n' {
+			lines = append(lines, strData[start:i])
+			start = i + 1
+		}
+	}
+	if start < len(strData) {
+		lines = append(lines, strData[start:])
+	}
+
+	for i := len(lines) - 1; i >= 0 && len(results) < limit; i-- {
+		if len(lines[i]) == 0 {
+			continue
+		}
+		var summary AttackSummary
+		if err := json.Unmarshal([]byte(lines[i]), &summary); err == nil {
+			results = append(results, summary)
+		}
+	}
+
+	return results, nil
 }
