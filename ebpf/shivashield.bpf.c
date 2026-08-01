@@ -600,7 +600,7 @@ int shivashield_xdp(struct xdp_md *ctx)
         if (check_flow_rate(&fk, pkt_len, now_ns,
                             cfg->flow_pps, cfg->flow_bps) == ACTION_DROP) {
             emit_event(EVT_FLOW_EXCEEDED, &src_ip, &dst_ip,
-                       sport, dport, l4proto, ip_ver, 0, cfg->flow_pps);
+                       sport, dport, l4proto, ip_ver, cfg->flow_pps + 1, cfg->flow_pps);
             bump_stat(STATS_DROP_RATE, 1);
             bump_stat(STATS_DROP_PKTS, 1);
             bump_stat(STATS_DROP_BYTES, pkt_len);
@@ -628,7 +628,7 @@ int shivashield_xdp(struct xdp_md *ctx)
             if (check_flow_rate(&port_fk, pkt_len, now_ns,
                                 pr->pps, pr->bps) == ACTION_DROP) {
                 emit_event(EVT_RATE_EXCEEDED, &src_ip, &dst_ip,
-                           sport, dport, l4proto, ip_ver, 0, pr->pps);
+                           sport, dport, l4proto, ip_ver, pr->pps + 1, pr->pps);
                 bump_stat(STATS_DROP_RATE, 1);
                 bump_stat(STATS_DROP_PKTS, 1);
                 bump_stat(STATS_DROP_BYTES, pkt_len);

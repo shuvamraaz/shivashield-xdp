@@ -112,7 +112,7 @@ func (d *Dashboard) buildDashPage() tview.Primitive {
 		AddItem(d.ppsDropChart, 0, 1, false)
 
 	flex := tview.NewFlex().SetDirection(tview.FlexRow).
-		AddItem(d.dashStats, 10, 0, false).
+		AddItem(d.dashStats, 18, 0, false).
 		AddItem(charts, 0, 1, false)
 
 	return flex
