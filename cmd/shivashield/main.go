@@ -18,6 +18,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strconv"
 	"strings"
@@ -184,7 +185,35 @@ func cmdLoad() {
 // ── unload ────────────────────────────────────────────────────────────
 
 func cmdUnload() {
-	// Simply remove the BPF pins, which detaches the program.
+	// First, detach XDP from all interfaces using ip link.
+	// This clears both legacy netlink and bpf_link attachments.
+	confPath := defaultConf
+	cfg, err := config.LoadFile(confPath)
+	if err == nil {
+		for _, iface := range cfg.Interfaces {
+			// Try ip link to remove legacy XDP
+			exec.Command("ip", "link", "set", "dev", iface, "xdp", "off").Run()
+			// Also try to detach any bpf_links via bpftool
+			out, err := exec.Command("bpftool", "link", "list").Output()
+			if err == nil {
+				// Parse output to find XDP links on our interfaces
+				lines := strings.Split(string(out), "\n")
+				for _, line := range lines {
+					if strings.Contains(line, "xdp") && strings.Contains(line, iface) {
+						// Extract link ID from the beginning of the line (e.g., "24: xdp ...")
+						parts := strings.SplitN(strings.TrimSpace(line), ":", 2)
+						if len(parts) >= 1 {
+							linkID := strings.TrimSpace(parts[0])
+							exec.Command("bpftool", "link", "detach", "id", linkID).Run()
+							log.Printf("detached bpf_link %s from %s", linkID, iface)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Remove the BPF pins.
 	if err := os.RemoveAll(loader.PinPath); err != nil {
 		log.Fatalf("unload: %v", err)
 	}

@@ -12,6 +12,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -361,6 +362,23 @@ func (fw *Firewall) loadPersistentIPs() {
 	}
 }
 
+// perCPUThreshold divides a threshold by the number of CPUs so that
+// per-CPU rate counters (LRU_PERCPU_HASH) trigger at the correct
+// aggregate rate. On a 2-core machine each CPU sees ~half the traffic,
+// so we need to halve the threshold to ensure bans actually fire.
+// Minimum returned value is 1.
+func perCPUThreshold(threshold uint64) uint64 {
+	n := uint64(runtime.NumCPU())
+	if n <= 1 || threshold == 0 {
+		return threshold
+	}
+	t := threshold / n
+	if t == 0 {
+		t = 1
+	}
+	return t
+}
+
 // pushConfig serializes the current config into the BPF config_map.
 func (fw *Firewall) pushConfig() error {
 	if fw.configMap == nil {
@@ -383,13 +401,7 @@ func (fw *Firewall) pushConfig() error {
 		ampFlag = 1
 	}
 
-	// Pack the 4 × u32 flags starting at offset 60.
-	// ss_config layout: ... ban_duration(u32) blackhole(u32) geoip_enabled(u32)
-	//                   port_scan_det(u32) amp_det(u32) _pad(u32)
-	// Wait — ban_duration is at offset 56 (after 7 × u64 = 56 bytes).
-	// Then blackhole at 60, geoip_enabled at 64, port_scan_det at 68,
-	// amp_det at 72, _pad at 76.  Total = 80 bytes.
-	// Let me recalculate:
+	// ss_config layout:
 	//   7 × u64 = 56 bytes (offsets 0..55)
 	//   ban_duration u32 = offset 56..59
 	//   blackhole u32 = offset 60..63
@@ -399,14 +411,20 @@ func (fw *Firewall) pushConfig() error {
 	//   _pad u32 = offset 76..79
 	//   Total = 80 bytes
 
+	// Rate-limit maps are PERCPU: each CPU counts independently, so we
+	// must divide the user-visible threshold by NumCPU to get the
+	// per-CPU threshold that triggers at the correct aggregate rate.
+	numCPU := runtime.NumCPU()
+	log.Printf("[firewall] pushing config (numCPU=%d, thresholds scaled to per-CPU)", numCPU)
+
 	buf := make([]byte, 80)
-	binary.LittleEndian.PutUint64(buf[0:8], fw.cfg.Thresholds.PPS)
-	binary.LittleEndian.PutUint64(buf[8:16], fw.cfg.Thresholds.SYN)
-	binary.LittleEndian.PutUint64(buf[16:24], fw.cfg.Thresholds.UDP)
-	binary.LittleEndian.PutUint64(buf[24:32], fw.cfg.Thresholds.ICMP)
-	binary.LittleEndian.PutUint64(buf[32:40], fw.cfg.Thresholds.NewSrc)
-	binary.LittleEndian.PutUint64(buf[40:48], fw.cfg.Thresholds.FlowPPS)
-	binary.LittleEndian.PutUint64(buf[48:56], fw.cfg.Thresholds.FlowBPS)
+	binary.LittleEndian.PutUint64(buf[0:8], perCPUThreshold(fw.cfg.Thresholds.PPS))
+	binary.LittleEndian.PutUint64(buf[8:16], perCPUThreshold(fw.cfg.Thresholds.SYN))
+	binary.LittleEndian.PutUint64(buf[16:24], perCPUThreshold(fw.cfg.Thresholds.UDP))
+	binary.LittleEndian.PutUint64(buf[24:32], perCPUThreshold(fw.cfg.Thresholds.ICMP))
+	binary.LittleEndian.PutUint64(buf[32:40], perCPUThreshold(fw.cfg.Thresholds.NewSrc))
+	binary.LittleEndian.PutUint64(buf[40:48], perCPUThreshold(fw.cfg.Thresholds.FlowPPS))
+	binary.LittleEndian.PutUint64(buf[48:56], perCPUThreshold(fw.cfg.Thresholds.FlowBPS))
 	binary.LittleEndian.PutUint32(buf[56:60], fw.cfg.BanDurationSec)
 	binary.LittleEndian.PutUint32(buf[60:64], bhFlag)
 	binary.LittleEndian.PutUint32(buf[64:68], geoFlag)
