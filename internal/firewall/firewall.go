@@ -326,6 +326,11 @@ func (fw *Firewall) IsBlackhole() bool {
 	return fw.cfg.Blackhole.Enabled
 }
 
+// Config returns the active firewall configuration.
+func (fw *Firewall) Config() *config.Config {
+	return fw.cfg
+}
+
 // AddWhitelist adds an IP to the whitelist.
 func (fw *Firewall) AddWhitelist(ip net.IP) error {
 	isV6 := ip.To4() == nil
