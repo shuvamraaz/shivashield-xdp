@@ -682,6 +682,12 @@ func (fw *Firewall) consumeEvents(ctx context.Context) {
 		}
 		fw.Leaderboard.RecordEvent(evt, status)
 
+		if status == "BANNED" && fw.cfg.BanDurationSec > 0 {
+			if ip := net.ParseIP(evt.SrcIP); ip != nil {
+				fw.AddBlacklist(ip, time.Duration(fw.cfg.BanDurationSec)*time.Second)
+			}
+		}
+
 		// Deduplicate: only log the same (event, IP) pair once every 5 seconds.
 		// This prevents SSH lockout from thousands of log lines during floods.
 		dkey := dedupKey{evt: evt.EventType, ip: evt.SrcIP}
