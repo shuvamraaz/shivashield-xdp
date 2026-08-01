@@ -387,17 +387,6 @@ func (d *Dashboard) updateUI(rate firewall.StatsRate, curr firewall.Stats) {
 			d.fw.Config().GeoIP.Enabled)
 		d.configView.SetText(cfgText)
 
-		// --- Map ---
-		var bannedIPs []string
-		for _, a := range d.fw.Leaderboard.GetTop(50) {
-			if a.Status == "BANNED" {
-				bannedIPs = append(bannedIPs, a.IP)
-			}
-		}
-		if len(bannedIPs) > 0 {
-			d.mapView.SetText(renderMap(bannedIPs))
-		} else {
-			d.mapView.SetText(renderMap(nil))
-		}
+
 	})
 }
