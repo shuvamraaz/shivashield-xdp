@@ -36,6 +36,9 @@ type Config struct {
 	// Blackhole mode settings.
 	Blackhole BlackholeConfig `yaml:"blackhole"`
 
+	// Auto-blackhole: automatically enable blackhole when under spoofed flood.
+	AutoBlackhole AutoBlackholeConfig `yaml:"auto_blackhole"`
+
 	// GeoIP blocking settings.
 	GeoIP GeoIPConfig `yaml:"geoip"`
 
@@ -63,6 +66,13 @@ type DiscordConfig struct {
 type BlackholeConfig struct {
 	Enabled  bool     `yaml:"enabled"`
 	AdminIPs []string `yaml:"admin_ips"`
+}
+
+// AutoBlackholeConfig controls automatic blackhole activation during floods.
+type AutoBlackholeConfig struct {
+	Enabled    bool   `yaml:"enabled"`     // Toggle on/off
+	TriggerPPS uint64 `yaml:"trigger_pps"` // Activate when aggregate PPS exceeds this
+	CooldownSec int   `yaml:"cooldown_sec"` // Seconds below threshold before deactivating
 }
 
 // GeoIPConfig controls GeoIP blocking.
@@ -105,6 +115,11 @@ func DefaultConfig() *Config {
 		},
 		Blackhole: BlackholeConfig{
 			Enabled: false,
+		},
+		AutoBlackhole: AutoBlackholeConfig{
+			Enabled:    true,
+			TriggerPPS: 10000,
+			CooldownSec: 30,
 		},
 		GeoIP: GeoIPConfig{
 			Enabled: false,

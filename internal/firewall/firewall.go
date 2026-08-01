@@ -89,6 +89,12 @@ type Firewall struct {
 	Anomaly     *AnomalyDetector
 	History     *HistoryLogger
 
+	// Auto-blackhole state.
+	autoBlackholeActive bool      // currently auto-enabled
+	autoBlackholeSince  time.Time // when auto-blackhole was activated
+	belowThresholdSince time.Time // when PPS first dropped below trigger
+	belowThresholdSet   bool      // whether belowThresholdSince is valid
+
 	// BPF maps (shortcuts).
 	configMap    *ebpf.Map
 	statsMap     *ebpf.Map
@@ -202,16 +208,65 @@ func (fw *Firewall) monitorStats(ctx context.Context) {
 							StartTime: time.Now().Add(-oldDur),
 							Duration:  oldDur.String(),
 							Type:      oldType,
-							PeakPPS:   spike, // Approximate based on spike multiplier
+							PeakPPS:   spike,
 							TopIPs:    fw.Leaderboard.GetTop(5),
 						})
 					}
 				}
+
+				// Auto-blackhole: defend against spoofed floods.
+				fw.checkAutoBlackhole(rate)
 			}
 			prev = curr
 			hasPrev = true
 		}
 	}
+}
+
+// checkAutoBlackhole activates blackhole mode when aggregate PPS exceeds
+// the configured threshold, and deactivates it after a cooldown period.
+// This defends against spoofed SYN floods where per-IP banning is useless.
+func (fw *Firewall) checkAutoBlackhole(rate StatsRate) {
+	if !fw.cfg.AutoBlackhole.Enabled {
+		return
+	}
+
+	totalPPS := rate.PassPPS + rate.DropPPS
+	trigger := fw.cfg.AutoBlackhole.TriggerPPS
+	cooldown := time.Duration(fw.cfg.AutoBlackhole.CooldownSec) * time.Second
+
+	if totalPPS > trigger {
+		// PPS above threshold — activate blackhole if not already active.
+		fw.belowThresholdSet = false // reset cooldown timer
+		if !fw.autoBlackholeActive {
+			fw.autoBlackholeActive = true
+			fw.autoBlackholeSince = time.Now()
+			fw.SetBlackhole(true)
+			log.Printf("[auto-blackhole] ⚡ ACTIVATED — aggregate PPS %d exceeds threshold %d", totalPPS, trigger)
+			log.Println("[auto-blackhole] only known + whitelisted IPs will pass through")
+		}
+	} else if fw.autoBlackholeActive {
+		// PPS below threshold — start or continue cooldown timer.
+		if !fw.belowThresholdSet {
+			fw.belowThresholdSince = time.Now()
+			fw.belowThresholdSet = true
+		}
+		elapsed := time.Since(fw.belowThresholdSince)
+		if elapsed >= cooldown {
+			// Cooldown expired — deactivate blackhole.
+			fw.autoBlackholeActive = false
+			fw.belowThresholdSet = false
+			fw.SetBlackhole(false)
+			duration := time.Since(fw.autoBlackholeSince)
+			log.Printf("[auto-blackhole] ✓ DEACTIVATED — PPS below threshold for %ds (was active for %s)",
+				fw.cfg.AutoBlackhole.CooldownSec, duration.Round(time.Second))
+		}
+	}
+}
+
+// IsAutoBlackholeActive returns whether auto-blackhole is currently engaged.
+func (fw *Firewall) IsAutoBlackholeActive() bool {
+	return fw.autoBlackholeActive
 }
 
 // Stop detaches the XDP program and stops all background workers.

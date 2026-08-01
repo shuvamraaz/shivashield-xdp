@@ -395,6 +395,11 @@ blackhole:
   enabled: false
   admin_ips: []
 
+auto_blackhole:
+  enabled: true
+  trigger_pps: 10000
+  cooldown_sec: 30
+
 geoip:
   enabled: false
   database_path: "/var/lib/shivashield/geoip"

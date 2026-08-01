@@ -146,7 +146,11 @@ func (d *Dashboard) updateUI(rate firewall.StatsRate, curr firewall.Stats) {
 		// --- Header ---
 		bhStatus := "[green]OFF"
 		if d.fw.IsBlackhole() {
-			bhStatus = "[red]ON"
+			if d.fw.IsAutoBlackholeActive() {
+				bhStatus = "[red]AUTO"
+			} else {
+				bhStatus = "[red]ON"
+			}
 		}
 		
 		state, aType, dur, base, spike := d.fw.Anomaly.State()

@@ -59,6 +59,13 @@ blackhole:
   admin_ips: []
   # admin_ips: ["203.0.113.10", "2001:db8::1"]
 
+# Auto-blackhole mode: dynamically enable blackhole mode when a spoofed 
+# flood (or highly distributed attack) is detected by observing aggregate PPS.
+auto_blackhole:
+  enabled: true
+  trigger_pps: 10000      # activate if total traffic exceeds 10k PPS
+  cooldown_sec: 30        # deactivate after traffic drops for 30s
+
 # GeoIP blocking (optional). Requires MaxMind GeoLite2 CSV databases.
 # Download free from: https://dev.maxmind.com/geoip/geolite2-free-geolocation-data
 geoip:
