@@ -101,6 +101,7 @@ type Firewall struct {
 	originalPPS         uint64
 	dynamicPPSActive    bool
 
+	cfgMu               sync.RWMutex // Protects cfg from concurrent TUI reads during dynamic updates
 	pcapRunning         atomic.Bool // prevent concurrent tcpdump processes
 
 	// BPF maps (shortcuts).
@@ -222,11 +223,13 @@ func (fw *Firewall) monitorStats(ctx context.Context) {
 					}
 
 					// Restore Dynamic Thresholds
+					fw.cfgMu.Lock()
 					if fw.dynamicPPSActive {
 						fw.cfg.Thresholds.PPS = fw.originalPPS
 						fw.dynamicPPSActive = false
 						fw.pushConfig()
 					}
+					fw.cfgMu.Unlock()
 				}
 
 				// If attack just started, trigger Auto-PCAP
@@ -236,6 +239,7 @@ func (fw *Firewall) monitorStats(ctx context.Context) {
 					}
 
 					// Apply Dynamic Thresholds
+					fw.cfgMu.Lock()
 					if fw.cfg.Features.DynamicThresholds && !fw.dynamicPPSActive {
 						fw.originalPPS = fw.cfg.Thresholds.PPS
 						fw.dynamicPPSActive = true
@@ -250,6 +254,7 @@ func (fw *Firewall) monitorStats(ctx context.Context) {
 						fw.cfg.Thresholds.PPS = dynPPS
 						fw.pushConfig()
 					}
+					fw.cfgMu.Unlock()
 				}
 
 				// Auto-blackhole: defend against spoofed floods.
@@ -353,8 +358,12 @@ func (fw *Firewall) Stop() {
 
 // Reload re-reads config and pushes updated values to BPF maps.
 func (fw *Firewall) Reload(cfg *config.Config) {
+	fw.cfgMu.Lock()
 	fw.cfg = cfg
-	if err := fw.pushConfig(); err != nil {
+	err := fw.pushConfig()
+	fw.cfgMu.Unlock()
+	
+	if err != nil {
 		log.Printf("[firewall] reload config failed: %v", err)
 	} else {
 		log.Println("[firewall] config reloaded into BPF maps")
@@ -379,22 +388,29 @@ func (fw *Firewall) WhitelistCount() (int, error) {
 
 // SetBlackhole toggles blackhole mode.
 func (fw *Firewall) SetBlackhole(enabled bool) error {
+	fw.cfgMu.Lock()
 	if enabled {
 		fw.cfg.Blackhole.Enabled = true
 	} else {
 		fw.cfg.Blackhole.Enabled = false
 	}
-	return fw.pushConfig()
+	err := fw.pushConfig()
+	fw.cfgMu.Unlock()
+	return err
 }
 
 // IsBlackhole returns whether blackhole mode is active.
 func (fw *Firewall) IsBlackhole() bool {
+	fw.cfgMu.RLock()
+	defer fw.cfgMu.RUnlock()
 	return fw.cfg.Blackhole.Enabled
 }
 
-// Config returns the active firewall configuration.
-func (fw *Firewall) Config() *config.Config {
-	return fw.cfg
+// Config returns a copy of the active firewall configuration.
+func (fw *Firewall) Config() config.Config {
+	fw.cfgMu.RLock()
+	defer fw.cfgMu.RUnlock()
+	return *fw.cfg
 }
 
 // AddWhitelist adds an IP to the whitelist.
@@ -593,7 +609,11 @@ func (fw *Firewall) LoadMaps() error {
 // whitelist entries to the whitelist BPF map.
 func (fw *Firewall) populateWhitelist() {
 	// Admin IPs from config.
-	for _, ipStr := range fw.cfg.Blackhole.AdminIPs {
+	fw.cfgMu.RLock()
+	adminIPs := fw.cfg.Blackhole.AdminIPs
+	fw.cfgMu.RUnlock()
+	
+	for _, ipStr := range adminIPs {
 		ip, _, err := util.ParseIP(ipStr)
 		if err != nil {
 			log.Printf("[firewall] invalid admin IP %q: %v", ipStr, err)
@@ -636,7 +656,12 @@ func (fw *Firewall) populatePortRules() {
 	if fw.portRulesMap == nil {
 		return
 	}
-	for _, rule := range fw.cfg.PortRules {
+	
+	fw.cfgMu.RLock()
+	rules := fw.cfg.PortRules
+	fw.cfgMu.RUnlock()
+	
+	for _, rule := range rules {
 		// ss_port_rule_key: port(u16) proto(u8) _pad(u8) = 4 bytes
 		key := make([]byte, 4)
 		binary.LittleEndian.PutUint16(key[0:2], rule.Port)
