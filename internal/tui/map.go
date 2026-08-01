@@ -41,9 +41,11 @@ func (d *Dashboard) buildMapPage() tview.Primitive {
 
 // renderMap takes a list of banned IPs and plots them
 func renderMap(bannedIPs []string) string {
-	// Copy the base map
-	rendered := make([]string, len(worldMap))
-	copy(rendered, worldMap)
+	// Copy the base map into a 2D rune grid
+	grid := make([][]rune, len(worldMap))
+	for y, row := range worldMap {
+		grid[y] = []rune(row)
+	}
 
 	// Plot fake coordinates for visual effect since we don't have full GeoIP loaded in memory
 	// In a real production scenario, we would parse MaxMind CSVs to exact lat/long.
@@ -65,12 +67,23 @@ func renderMap(bannedIPs []string) string {
 		if x < 1 { x = 1 }
 		if y < 1 { y = 1 }
 
-		// Insert a blinking red * at X,Y
-		row := rendered[y]
-		if x < len(row) {
-			rendered[y] = row[:x] + "[red::bl]*[white::-]" + row[x+1:]
+		if y < len(grid) && x < len(grid[y]) {
+			grid[y][x] = '*'
 		}
 	}
 
-	return strings.Join(rendered, "\n")
+	// Convert grid back to string, replacing '*' with color tags
+	var sb strings.Builder
+	for _, row := range grid {
+		for _, char := range row {
+			if char == '*' {
+				sb.WriteString("[red::bl]*[white::-]")
+			} else {
+				sb.WriteRune(char)
+			}
+		}
+		sb.WriteString("\n")
+	}
+
+	return sb.String()
 }
