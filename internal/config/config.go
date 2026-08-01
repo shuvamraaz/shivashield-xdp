@@ -54,6 +54,7 @@ type Config struct {
 type Features struct {
 	PortScanDetection      bool `yaml:"port_scan_detection"`
 	AmplificationDetection bool `yaml:"amplification_detection"`
+	AutoPCAP               bool `yaml:"auto_pcap"`
 }
 
 // DiscordConfig holds Discord webhook alert settings.

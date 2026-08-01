@@ -12,6 +12,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"os/exec"
 	"runtime"
 	"strings"
 	"time"
@@ -214,12 +215,43 @@ func (fw *Firewall) monitorStats(ctx context.Context) {
 					}
 				}
 
+				// If attack just started, trigger Auto-PCAP
+				if oldState == StateNormal && newState == StateUnderAttack {
+					go fw.triggerAutoPCAP()
+				}
+
 				// Auto-blackhole: defend against spoofed floods.
 				fw.checkAutoBlackhole(rate)
 			}
 			prev = curr
 			hasPrev = true
 		}
+	}
+}
+
+// triggerAutoPCAP launches tcpdump in the background to capture the start of an attack.
+func (fw *Firewall) triggerAutoPCAP() {
+	if !fw.cfg.Features.AutoPCAP {
+		return
+	}
+	if len(fw.cfg.Interfaces) == 0 {
+		return
+	}
+	
+	iface := fw.cfg.Interfaces[0]
+	dir := "/var/log/shivashield"
+	os.MkdirAll(dir, 0755)
+	
+	filename := fmt.Sprintf("%s/attack_%s.pcap", dir, time.Now().Format("20060102_150405"))
+	log.Printf("[forensics] capturing first 1000 packets of attack on %s to %s", iface, filename)
+	
+	// Capture 1000 packets (-c 1000), save to file (-w), no name resolution (-n)
+	cmd := exec.Command("tcpdump", "-i", iface, "-n", "-c", "1000", "-w", filename)
+	err := cmd.Run()
+	if err != nil {
+		log.Printf("[forensics] tcpdump failed: %v", err)
+	} else {
+		log.Printf("[forensics] pcap capture complete: %s", filename)
 	}
 }
 

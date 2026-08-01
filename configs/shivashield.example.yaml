@@ -34,6 +34,8 @@ features:
   port_scan_detection: true
   # Detect amplification attacks from DNS/NTP/SSDP/Memcached ports.
   amplification_detection: true
+  # Automatically capture 1000 packets into a .pcap file when an attack starts.
+  auto_pcap: true
 
 # Discord webhook alerts (optional). Leave webhook_url empty to disable.
 discord:
