@@ -414,6 +414,7 @@ ban_duration_sec: 300
 features:
   port_scan_detection: $PORT_SCAN
   amplification_detection: $AMP_DET
+  auto_pcap: true
 
 discord:
   webhook_url: "$WEBHOOK"
