@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/cilium/ebpf"
@@ -100,6 +101,11 @@ func (l *Loader) Attach(interfaces []string, mode XDPMode) error {
 		if err != nil {
 			return fmt.Errorf("interface %s: %w", ifaceName, err)
 		}
+
+		// Clean up any existing XDP programs (e.g. from a previous crash or other firewall)
+		// This prevents "create link: file exists" or "device or resource busy" errors
+		// when cilium/ebpf tries to attach a new bpf_link over a legacy netlink attachment.
+		_ = exec.Command("ip", "link", "set", "dev", ifaceName, "xdp", "off").Run()
 
 		var xdpLink link.Link
 
