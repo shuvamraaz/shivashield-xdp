@@ -414,8 +414,6 @@ int shivashield_xdp(struct xdp_md *ctx)
     /* ----- 4. Blackhole mode ----- */
     if (cfg->blackhole) {
         if (!bpf_map_lookup_elem(&known_ips_map, &src_ip)) {
-            emit_event(EVT_BLACKHOLE_DROP, &src_ip, &dst_ip,
-                       0, 0, l4proto, ip_ver, 0, 0);
             bump_stat(STATS_DROP_BLACKHOLE, 1);
             bump_stat(STATS_DROP_PKTS, 1);
             bump_stat(STATS_DROP_BYTES, pkt_len);
@@ -441,9 +439,11 @@ int shivashield_xdp(struct xdp_md *ctx)
                 } else {
                     nsc->count++;
                     if (cfg->new_src && nsc->count > cfg->new_src) {
-                        emit_event(EVT_NEW_SRC_FLOOD, &src_ip, &dst_ip,
-                                   0, 0, l4proto, ip_ver,
-                                   nsc->count, cfg->new_src);
+                        if (nsc->count == cfg->new_src + 1) {
+                            emit_event(EVT_NEW_SRC_FLOOD, &src_ip, &dst_ip,
+                                       0, 0, l4proto, ip_ver,
+                                       nsc->count, cfg->new_src);
+                        }
                         bump_stat(STATS_DROP_RATE, 1);
                         bump_stat(STATS_DROP_PKTS, 1);
                         bump_stat(STATS_DROP_BYTES, pkt_len);
