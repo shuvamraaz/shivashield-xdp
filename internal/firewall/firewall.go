@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/cilium/ebpf"
@@ -95,6 +96,8 @@ type Firewall struct {
 	autoBlackholeSince  time.Time // when auto-blackhole was activated
 	belowThresholdSince time.Time // when PPS first dropped below trigger
 	belowThresholdSet   bool      // whether belowThresholdSince is valid
+
+	pcapRunning         atomic.Bool // prevent concurrent tcpdump processes
 
 	// BPF maps (shortcuts).
 	configMap    *ebpf.Map
@@ -217,7 +220,9 @@ func (fw *Firewall) monitorStats(ctx context.Context) {
 
 				// If attack just started, trigger Auto-PCAP
 				if oldState == StateNormal && newState == StateUnderAttack {
-					go fw.triggerAutoPCAP()
+					if fw.pcapRunning.CompareAndSwap(false, true) {
+						go fw.triggerAutoPCAP()
+					}
 				}
 
 				// Auto-blackhole: defend against spoofed floods.
@@ -231,6 +236,8 @@ func (fw *Firewall) monitorStats(ctx context.Context) {
 
 // triggerAutoPCAP launches tcpdump in the background to capture the start of an attack.
 func (fw *Firewall) triggerAutoPCAP() {
+	defer fw.pcapRunning.Store(false)
+	
 	if !fw.cfg.Features.AutoPCAP {
 		return
 	}
