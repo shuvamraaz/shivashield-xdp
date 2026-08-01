@@ -297,7 +297,7 @@ func (d *Dashboard) updateUI(rate firewall.StatsRate, curr firewall.Stats) {
 		}
 
 		// --- Live (Leaderboard) ---
-		liveText := fmt.Sprintf("[cyan]Anomaly Detector:[white]\nBaseline PPS: %.2f  |  Spike: %.2fx  |  Attack Type: %s  |  Duration: %s\n\n", base, spike, aType, dur.String())
+		liveText := fmt.Sprintf("[cyan]Anomaly Detector:[white]\nBaseline PPS: %.2f  |  Spike: %.2fx  |  Attack Type: %s  |  Duration: %s\n\n", base, spike, aType, dur.Round(time.Millisecond).String())
 		liveText += "[yellow]Top Attackers:[white]\nIP                   Country     PPS         SYN         Score     Status\n"
 		liveText += "---------------------------------------------------------------------------------\n"
 		for _, a := range d.fw.Leaderboard.GetTop(15) {
@@ -341,8 +341,14 @@ func (d *Dashboard) updateUI(rate firewall.StatsRate, curr firewall.Stats) {
 					topIP = h.TopIPs[0].IP
 					cc = getCountry(topIP)
 				}
+				
+				durStr := h.Duration
+				if pd, err := time.ParseDuration(h.Duration); err == nil {
+					durStr = pd.Round(time.Millisecond).String()
+				}
+				
 				histText += fmt.Sprintf("%-20s %-10s %-15s %-11.0f %-7s %s\n",
-					h.StartTime.Format("01/02 15:04:05"), h.Duration, h.Type, h.PeakPPS, cc, topIP)
+					h.StartTime.Format("01/02 15:04:05"), durStr, h.Type, h.PeakPPS, cc, topIP)
 			}
 			d.historyView.SetText(histText)
 		}
