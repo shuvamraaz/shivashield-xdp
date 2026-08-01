@@ -113,6 +113,16 @@ while [ $# -gt 0 ]; do
 		--preset)     OPT_PRESET="$2"; shift ;;
 		--traffic)    OPT_TRAFFIC="$2"; shift ;;
 		--webhook)    OPT_WEBHOOK="$2"; shift ;;
+		--uninstall)
+			if [ -f "$(dirname "$0")/uninstall.sh" ]; then
+				"$(dirname "$0")/uninstall.sh"
+			elif [ -f "/opt/shivashield/uninstall.sh" ]; then
+				"/opt/shivashield/uninstall.sh"
+			else
+				die "uninstall.sh not found."
+			fi
+			exit 0
+			;;
 	esac
 	shift
 done
@@ -262,10 +272,16 @@ ok "Interface: $IFACE"
 # ------------------------------------------------------------ prompts (2) ---
 echo
 log "Step 2/5 — Deployment preset"
+CORES=$(nproc 2>/dev/null || echo 2)
+DEFAULT_PRESET="Hosting"
+if [ "$CORES" -le 2 ]; then DEFAULT_PRESET="Personal"
+elif [ "$CORES" -ge 9 ]; then DEFAULT_PRESET="Enterprise"
+fi
+
 if [ "$AUTO_MODE" -eq 1 ]; then
-	PRESET="${OPT_PRESET:-Hosting}"
+	PRESET="${OPT_PRESET:-$DEFAULT_PRESET}"
 else
-	ask_choice "Preset (base thresholds):" "Hosting" "Personal" "Hosting" "Enterprise"
+	ask_choice "Preset (base thresholds, default based on $CORES cores):" "$DEFAULT_PRESET" "Personal" "Hosting" "Enterprise"
 	PRESET="$ASK_RESULT"
 fi
 ok "Preset: $PRESET"
@@ -342,6 +358,19 @@ fi
 echo
 log "Building ShivaShield XDP..."
 make -C "$SRC_DIR" all
+
+# ---------------------------------------------------------------- sysctl ---
+echo
+log "Configuring persistent sysctls for XDP..."
+cat > /etc/sysctl.d/99-shivashield.conf <<EOF
+# ShivaShield XDP - Network tuning
+net.core.netdev_max_backlog = 100000
+net.core.somaxconn = 65535
+net.ipv4.tcp_max_syn_backlog = 100000
+net.ipv4.tcp_syncookies = 1
+EOF
+sysctl -p /etc/sysctl.d/99-shivashield.conf >/dev/null 2>&1 || true
+ok "Sysctls applied"
 
 # ---------------------------------------------------------------- install ---
 log "Installing to /opt/shivashield ..."

@@ -1,338 +1,143 @@
-# ShivaShield XDP
+# ShivaShield XDP — Advanced eBPF/XDP Firewall
 
-**Advanced XDP/eBPF Firewall for Linux — Free & Open Source**
+ShivaShield XDP is a blazing-fast, drop-in DDoS mitigation firewall powered by eBPF (Extended Berkeley Packet Filter) and XDP (eXpress Data Path). Designed to protect Linux servers and game servers from massive volumetric attacks, it filters traffic directly inside the network driver—before it even reaches the Linux network stack.
 
-ShivaShield is a high-performance, kernel-level DDoS protection and traffic filtering tool that uses eBPF/XDP technology to inspect and drop malicious packets at the earliest possible point in the Linux networking stack — *before* they even reach the kernel's normal network processing.
+**Free & Open Source.** No license keys required.
 
-> **No license key required.** ShivaShield is completely free and open source under the MIT license.
-
----
+![ShivaShield TUI](https://raw.githubusercontent.com/shivashield/shivashield-xdp/main/assets/lite-shield.png)
 
 ## Features
 
-### Core Protection
-- **Per-source-IP rate limiting** — PPS, TCP SYN, UDP, ICMP thresholds
-- **Per-flow rate limiting** — 5-tuple (src+dst+proto+ports) PPS and BPS limits
-- **New source IP flood detection** — catches IP-spoofing floods
-- **Auto-banning** — offending IPs are automatically blocked with configurable TTL
-
-### Advanced Detection
-- **SYN flood protection** — per-IP SYN rate limiting at wire speed
-- **Amplification detection** — DNS, NTP, SSDP, Memcached, SNMP, Chargen reflection attacks
-- **Port scan detection** — NULL, FIN, and XMAS scan patterns
-- **Packet validation** — malformed L3/L4 header detection and drop
-- **GeoIP blocking** — block traffic by country using MaxMind GeoLite2 data
-
-### Architecture
-- **Per-CPU LRU maps** — zero lock contention, automatic memory management
-- **Multi-interface support** — protect multiple NICs simultaneously
-- **Full dual-stack** — IPv4 and IPv6 support
-- **BPF ring buffer** — efficient event delivery to userspace
-- **SIGHUP hot-reload** — zero-downtime configuration changes
-
-### Operations
-- **Blackhole mode** — lockdown: only known IPs + admin IPs pass
-- **Whitelist / Blacklist** — manual IP management via CLI
-- **Live TUI dashboard** — real-time packet rates, protocol breakdown, ban counts
-- **Discord alerts** — rich embeds with severity colors and attack details
-- **Systemd integration** — protection from boot, before services start
-- **Per-port rules** — custom rate limits for specific services
-- **Structured logging** — text or JSON format, file output with rotation
+- **🚀 XDP-Powered Performance:** Drops millions of packets per second per core with minimal CPU overhead.
+- **🛡️ Multi-Vector Protection:** Mitigates UDP floods, ICMP floods, TCP SYN floods, Port Scans, and DNS/NTP Amplification attacks.
+- **⏱️ Per-IP & Per-Flow Rate Limiting:** Granular rate limits (PPS/BPS) for both individual source IPs and 5-tuple flows.
+- **🌍 GeoIP Blocking:** High-speed LPM (Longest Prefix Match) trie-based country blocking using MaxMind data.
+- **🕳️ Auto-Blackhole Mode:** Automatically transitions into a strict whitelist-only lockdown during massive distributed attacks.
+- **📊 Live TUI Dashboard:** Real-time terminal UI showing PPS/BPS metrics, active drop reasons, and a live attacker leaderboard.
+- **🔔 Discord Alerts:** Webhook integration for instant notifications when rate limits trigger or blackhole mode activates.
 
 ---
 
-## Requirements
+## ⚡ Quick Start (1-Line Install)
 
-- Linux kernel **5.15+** with BTF (`CONFIG_DEBUG_INFO_BTF=y`)
-- x86_64 architecture
-- **clang**, **llvm-strip**, **bpftool**, **Go >= 1.22**
-
----
-
-## Quick Install
+Run the automated installer on a fresh Ubuntu/Debian/RHEL/Arch system:
 
 ```bash
-# Clone and run the interactive installer:
-git clone https://github.com/shuvamraaz/shivashield-xdp.git
-cd shivashield-xdp
-chmod +x install.sh
-sudo ./install.sh
-
-# Or non-interactive with defaults:
-sudo ./install.sh --auto --interface eth0 --preset Hosting --traffic Balanced
+curl -fsSL https://raw.githubusercontent.com/shivashield/shivashield-xdp/main/install.sh | sudo bash
 ```
 
-> **Ubuntu 22.04 note:** The default Go (1.18) is too old. Install Go 1.22+ first:
-> ```bash
-> wget -q https://go.dev/dl/go1.23.0.linux-amd64.tar.gz
-> sudo rm -rf /usr/local/go
-> sudo tar -C /usr/local -xzf go1.23.0.linux-amd64.tar.gz
-> export PATH=$PATH:/usr/local/go/bin
-> echo 'export PATH=$PATH:/usr/local/go/bin:~/go/bin' >> ~/.bashrc
-> ```
-
-### Build from Source (Manual)
-
-```bash
-git clone https://github.com/shuvamraaz/shivashield-xdp.git
-cd shivashield-xdp
-
-# Generate vmlinux.h from your kernel
-bpftool btf dump file /sys/kernel/btf/vmlinux format c > ebpf/headers/vmlinux.h
-
-# Download dependencies and compile BPF
-go mod tidy
-go generate ./...
-
-# Build binary
-mkdir -p bin
-CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/shivashield ./cmd/shivashield
-cp shivashield_x86_bpfel.o bin/shivashield.bpf.o
-
-# Install to system
-sudo install -d /opt/shivashield /etc/shivashield
-sudo install -m 0755 bin/shivashield /opt/shivashield/shivashield
-sudo cp bin/shivashield.bpf.o /opt/shivashield/
-sudo ln -sf /opt/shivashield/shivashield /usr/local/bin/shivashield
-sudo cp configs/shivashield.example.yaml /etc/shivashield/shivashield.yaml
-sudo cp systemd/shivashield.service /etc/systemd/system/
-sudo systemctl daemon-reload
-
-# Launch
-sudo shivashield load
-```
+The installer will auto-detect your network interface, suggest a traffic profile based on your CPU cores, build the firewall, and configure it as a `systemd` service.
 
 ---
 
-## Usage
+## 🛠️ Configuration Reference
 
-### Commands
-
-```bash
-# Attach firewall with live TUI dashboard
-sudo shivashield load
-
-# Attach headless (for systemd/background)
-sudo shivashield load --no-tui --config /etc/shivashield/shivashield.yaml
-
-# Detach firewall manually
-sudo shivashield unload
-
-# Show status
-sudo shivashield status
-
-# Manage background service (Systemd)
-sudo systemctl start shivashield
-sudo systemctl stop shivashield
-sudo systemctl restart shivashield
-sudo systemctl status shivashield
-
-# View live dashboard when service is running
-# (Must stop the background service first to release the port)
-sudo systemctl stop shivashield
-sudo shivashield load
-# ... press Q when done ...
-sudo systemctl start shivashield
-
-# Manage whitelist
-sudo shivashield whitelist add 203.0.113.10
-sudo shivashield whitelist remove 203.0.113.10
-sudo shivashield whitelist list
-
-# Manage blacklist
-sudo shivashield blacklist add 198.51.100.5 3600   # ban for 1 hour
-sudo shivashield blacklist add 198.51.100.5         # permanent ban
-sudo shivashield blacklist remove 198.51.100.5
-
-# Toggle blackhole (lockdown) mode
-sudo shivashield blackhole on
-sudo shivashield blackhole off
-
-# GeoIP blocking
-sudo shivashield geoblock add CN
-sudo shivashield geoblock add RU
-sudo shivashield geoblock list
-
-# Hot-reload configuration (zero downtime)
-sudo kill -HUP $(pidof shivashield)
-
-# Version info
-shivashield version
-```
-
-### TUI Dashboard Controls
-
-| Key       | Action                     |
-|-----------|----------------------------|
-| `SPACE`   | Toggle blackhole mode      |
-| `Q`       | Quit dashboard             |
-| `Ctrl+C`  | Stop firewall and exit     |
-
----
-
-## ⚠️ The Golden Rule
-
-> **You cannot run the live TUI dashboard and the background systemd service at the same time.**
->
-> Both compete for the same XDP attachment on the network interface. Always stop the service before launching the dashboard, then restart it when done.
+The main configuration is stored at `/etc/shivashield/shivashield.yaml`. After modifying the config, reload it without dropping traffic:
 
 ```bash
-# Correct workflow:
-sudo systemctl stop shivashield
-sudo shivashield load          # dashboard opens
-# ... press Q when done ...
-sudo systemctl start shivashield
+sudo systemctl reload shivashield
 ```
-
----
-
-## Configuration
-
-Configuration file: `/etc/shivashield/shivashield.yaml`
-
-See [shivashield.example.yaml](configs/shivashield.example.yaml) for all options.
 
 ### Deployment Presets
 
-| Preset     | PPS     | SYN    | UDP    | ICMP  | New Src | Flow PPS | Flow BPS   |
-|------------|---------|--------|--------|-------|---------|----------|------------|
-| Personal   | 50K     | 500    | 2K     | 200   | 100     | 5K       | 5 MB/s     |
-| Hosting    | 200K    | 2K     | 10K    | 500   | 500     | 20K      | 20 MB/s    |
-| Enterprise | 1M      | 10K    | 50K    | 2K    | 2K      | 100K     | 100 MB/s   |
+When installing, you can choose a preset base:
+- **Personal:** Small VPS (1-2 cores). Conservative thresholds.
+- **Hosting:** Dedicated servers (4-8 cores). Balanced thresholds.
+- **Enterprise:** Heavy traffic servers (9+ cores). High thresholds.
 
-Each preset can be scaled by a traffic profile:
-- **Strict** — 0.5× (tighter limits)
-- **Balanced** — 1.0× (default)
-- **High** — 2.0× (more permissive)
+### Important Settings
 
-### Recommended Thresholds for a Typical VPS
+- `xdp_mode`: Can be `auto`, `native`, `generic`, or `offload`. 
+  - *Native* is the fastest but requires driver support. 
+  - *Generic* works on all interfaces but is much slower.
+- `thresholds`: Global per-IP rate limits (in packets per second).
+- `ban_duration_sec`: Time in seconds to block an IP after it violates a threshold. Set to `0` to only drop packets without banning.
+- `auto_blackhole`: When the `trigger_pps` is exceeded globally, the firewall goes into lockdown, allowing only whitelisted and admin IPs.
 
-```yaml
-thresholds:
-  pps: 25000
-  syn: 50          # 50 SYN/s per IP is plenty for legitimate traffic
-  udp: 500
-  icmp: 100
-  new_src: 100
-  flow_pps: 5000
-  flow_bps: 5000000
+---
 
-ban_duration_sec: 600  # Ban for 10 minutes
+## 💻 CLI Commands
+
+ShivaShield comes with a CLI for managing the firewall at runtime.
+
+### Start/Stop
+```bash
+# Attach XDP and open the live TUI dashboard
+sudo shivashield load
+
+# Run in background without TUI
+sudo shivashield load --no-tui
+
+# Detach the firewall from all interfaces
+sudo shivashield unload
+```
+
+### Whitelist & Blacklist
+```bash
+# Add an IP to the whitelist (bypasses all rate limits)
+sudo shivashield whitelist add 1.2.3.4
+sudo shivashield whitelist remove 1.2.3.4
+sudo shivashield whitelist list
+
+# Permanently blacklist an IP (dropped instantly)
+sudo shivashield blacklist add 5.6.7.8
+# Temporarily blacklist for 1 hour (3600 seconds)
+sudo shivashield blacklist add 5.6.7.8 3600
+```
+
+### Blackhole & GeoIP
+```bash
+# Toggle lockdown mode immediately
+sudo shivashield blackhole on
+sudo shivashield blackhole off
+
+# Block an entire country (ISO-3166-1 alpha-2 code)
+sudo shivashield geoblock add CN
+sudo shivashield geoblock remove RU
+sudo shivashield geoblock list
 ```
 
 ---
 
-## Persistent Whitelist & Blacklist
+## 📖 Troubleshooting Guide
 
-Whitelisted and blacklisted IPs are stored as plain text files that survive reboots:
-
-| File | Purpose |
-|------|---------|
-| `/etc/shivashield/whitelist.txt` | Permanently allowed IPs |
-| `/etc/shivashield/blacklist.txt` | Permanently banned IPs |
-
-These files are loaded into the kernel BPF maps automatically every time the firewall starts. When you use `shivashield whitelist add` or `shivashield blacklist add`, the IP is written to the file **and** injected into the live kernel map instantly — no restart needed.
-
-To view all banned IPs:
+### ❌ Error: "device or resource busy" / "file exists"
+**Cause:** Stale XDP or BPF links are stuck on the interface, usually from an old firewall or an ungraceful shutdown.
+**Fix:**
 ```bash
-cat /etc/shivashield/blacklist.txt
-sudo shivashield blacklist list
-```
-
----
-
-## Architecture
-
-```
-                                    ┌────────────────────────────┐
-                                    │      User Space (Go)       │
-                                    │                            │
-                                    │  ┌──────────────────────┐  │
-                                    │  │   CLI / TUI / Alerts │  │
-                                    │  └──────────┬───────────┘  │
-                                    │             │ reads/writes │
-                                    │  ┌──────────▼───────────┐  │
-                                    │  │     BPF Maps          │  │
-                                    │  │  (config, stats,      │  │
-                                    │  │   blacklist, whitelist,│  │
-                                    │  │   geoip, events)      │  │
-                                    │  └──────────┬───────────┘  │
-                                    └─────────────┼──────────────┘
-                                                  │
-                              ════════════════════╪═══════════════
-                                                  │
-                                    ┌─────────────▼──────────────┐
-                                    │     Kernel Space (C)       │
-                                    │                            │
-  Network Packet ──► NIC Driver ──► │  shivashield.bpf.o (XDP)  │
-                                    │                            │
-                                    │  Validate → Whitelist →   │
-                                    │  Blacklist → GeoIP →      │
-                                    │  Blackhole → Rate Limit → │
-                                    │  Port Scan → Amp Detect → │
-                                    │  Flow Limit → Port Rules  │
-                                    │                            │
-                                    │  XDP_PASS ──► Kernel Stack │
-                                    │  XDP_DROP ──► Discarded    │
-                                    └────────────────────────────┘
-```
-
----
-
-## Troubleshooting
-
-### Error: `failed to attach link: create link: file exists`
-
-This error means an XDP program is already attached to the interface.
-
-1. **Stop the background service first:**
-   ```bash
-   sudo systemctl stop shivashield
-   ```
-2. **If it's still stuck (zombie XDP link from a crash):**
-   ```bash
-   # Force kill any hidden shivashield processes
-   sudo killall -9 shivashield
-
-   # Forcefully detach from interface
-   sudo ip link set dev eth0 xdp off
-   ```
-
-### VPS Freezes / SSH Disconnects During Attack Test
-
-This was a known bug (now fixed). The event ring buffer was receiving one event per dropped packet, flooding the SSH terminal. The fix adds kernel-level throttling (1 event/second/IP/type) so your SSH session stays stable even during large floods.
-
-Make sure you are running the latest binary compiled from the newest source:
-```bash
-git pull && make
-sudo cp bin/shivashield /usr/local/bin/
-sudo cp bin/shivashield.bpf.o /opt/shivashield/
-```
-
-### Complete Reinstall
-
-```bash
-# 1. Full wipe
-sudo systemctl stop shivashield && sudo systemctl disable shivashield
-sudo killall -9 shivashield 2>/dev/null
-sudo ip link set dev eth0 xdp off 2>/dev/null
-sudo rm -rf /opt/shivashield /etc/shivashield
-sudo rm -f /usr/local/bin/shivashield /etc/systemd/system/shivashield.service
+sudo shivashield unload
+# If it's still stuck, manually remove XDP from your interface (e.g., eth0):
+sudo ip link set dev eth0 xdp off
 sudo rm -rf /sys/fs/bpf/shivashield
-sudo systemctl daemon-reload
-
-# 2. Fresh install
-cd ~/shivashield-xdp
-git pull
-make
-sudo make install
-sudo systemctl enable --now shivashield
 ```
+
+### ❌ Error: "native XDP failed, falling back to generic"
+**Cause:** Your network card driver does not support Native XDP (or it's a virtual interface like `veth` or certain VPS providers like OpenVZ/LXC).
+**Impact:** Generic XDP relies on the Linux `skb` (socket buffer) allocator. It can only handle around ~100k - 300k PPS before maxing out the CPU.
+**Fix:** Consider moving to a VPS provider that supports Native XDP (e.g., KVM-based instances on modern hosts).
+
+### ❌ Issue: VPS disconnects during an attack
+**Cause:** The attack traffic exceeds the capacity of Generic XDP, or the firewall's logging/event queue is overwhelming the CPU.
+**Fix:** 
+1. Ensure your interface is using Native XDP (check `sudo shivashield status`).
+2. Run `sudo systemctl edit shivashield` and add `LimitNOFILE=1048576` and `LimitMEMLOCK=infinity`.
+3. Check `dmesg` to see if the kernel is dropping packets due to ring buffer exhaustion.
+
+### ❌ Issue: High CPU usage during normal traffic
+**Cause:** The TUI dashboard polls metrics frequently.
+**Fix:** If you are running the service in the background, ensure it was started with `--no-tui` (the systemd service does this automatically).
 
 ---
 
-## License
+## 🏗️ Architecture
 
-MIT License — Copyright (c) 2026 Shiva
+ShivaShield operates in two distinct spaces:
 
-Free to use, modify, and distribute. No license key required.
+1. **Kernel Space (eBPF Data Plane):** Written in C (`shivashield.bpf.c`), compiled to eBPF bytecode. It attaches to the NIC driver via XDP. It parses ethernet, IP, TCP/UDP headers, calculates packet rates per source IP using a high-speed LRU map, and returns `XDP_DROP` for malicious packets or `XDP_PASS` for clean ones.
+2. **User Space (Go Control Plane):** Written in Go (`main.go`). It loads the eBPF program, reads configuration from YAML, sets up the BPF maps (Thresholds, Blacklists, GeoIP), consumes attack events via an eBPF RingBuffer, and runs the TUI dashboard.
+
+---
+
+## 📜 License
+
+MIT License. Free to use, modify, and distribute. No licensing required.

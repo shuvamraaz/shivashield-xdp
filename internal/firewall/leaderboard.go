@@ -40,6 +40,19 @@ func (l *Leaderboard) RecordEvent(evt *ParsedEvent, status string) {
 
 	a, ok := l.attackers[evt.SrcIP]
 	if !ok {
+		// Cap map size to prevent OOM during spoofed floods
+		if len(l.attackers) >= 10000 {
+			// Randomly evict 1,000 entries (Go map iteration is pseudo-random)
+			evicted := 0
+			for ip := range l.attackers {
+				delete(l.attackers, ip)
+				evicted++
+				if evicted >= 1000 {
+					break
+				}
+			}
+		}
+
 		a = &Attacker{IP: evt.SrcIP}
 		l.attackers[evt.SrcIP] = a
 	}

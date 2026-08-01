@@ -13,6 +13,10 @@ ExecStop=/usr/local/bin/shivashield unload
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=5
+LimitMEMLOCK=infinity
+LimitNOFILE=1048576
+KillMode=mixed
+TimeoutStopSec=10
 
 [Install]
 WantedBy=multi-user.target

@@ -484,11 +484,26 @@ func cmdBlackhole() {
 		fmt.Println("Usage: shivashield blackhole on|off")
 		os.Exit(1)
 	}
+
+	fw := loadLiveFirewall()
+	if fw == nil {
+		fmt.Println("Error: ShivaShield is not currently running.")
+		os.Exit(1)
+	}
+
 	switch os.Args[2] {
 	case "on":
+		if err := fw.SetBlackhole(true); err != nil {
+			fmt.Printf("Error enabling blackhole mode: %v\n", err)
+			os.Exit(1)
+		}
 		fmt.Println("Blackhole mode: ON")
 		fmt.Println("Only known IPs and admin IPs will be allowed through.")
 	case "off":
+		if err := fw.SetBlackhole(false); err != nil {
+			fmt.Printf("Error disabling blackhole mode: %v\n", err)
+			os.Exit(1)
+		}
 		fmt.Println("Blackhole mode: OFF")
 		fmt.Println("All traffic will be processed normally.")
 	default:
@@ -505,25 +520,40 @@ func cmdGeoblock() {
 		os.Exit(1)
 	}
 	action := os.Args[2]
-	switch action {
-	case "add":
-		if len(os.Args) < 4 {
-			fmt.Println("Usage: shivashield geoblock add <COUNTRY_CODE>")
-			os.Exit(1)
-		}
-		cc := strings.ToUpper(os.Args[3])
-		fmt.Printf("GeoIP: blocking country %s\n", cc)
+	confPath := defaultConf
 
-	case "remove":
+	switch action {
+	case "add", "remove":
 		if len(os.Args) < 4 {
-			fmt.Println("Usage: shivashield geoblock remove <COUNTRY_CODE>")
+			fmt.Printf("Usage: shivashield geoblock %s <COUNTRY_CODE>\n", action)
 			os.Exit(1)
 		}
 		cc := strings.ToUpper(os.Args[3])
-		fmt.Printf("GeoIP: unblocking country %s\n", cc)
+		if err := updateGeoBlockConfig(confPath, action, cc); err != nil {
+			fmt.Printf("Error updating config: %v\n", err)
+			os.Exit(1)
+		}
+		if action == "add" {
+			fmt.Printf("GeoIP: added country %s to block list in config.\n", cc)
+		} else {
+			fmt.Printf("GeoIP: removed country %s from block list in config.\n", cc)
+		}
+		fmt.Println("Run 'sudo systemctl reload shivashield' to apply changes.")
 
 	case "list":
-		fmt.Println("GeoIP blocked countries: (reading from config)")
+		cfg, err := config.LoadFile(confPath)
+		if err != nil {
+			fmt.Printf("Error loading config: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("GeoIP blocked countries (from config):")
+		if len(cfg.GeoIP.BlockCountries) == 0 {
+			fmt.Println("  (none)")
+		} else {
+			for _, cc := range cfg.GeoIP.BlockCountries {
+				fmt.Printf("  - %s\n", cc)
+			}
+		}
 
 	default:
 		fmt.Printf("Unknown geoblock action: %s\n", action)

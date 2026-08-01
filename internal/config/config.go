@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 
@@ -153,12 +154,30 @@ func (c *Config) validate() error {
 	if len(c.Interfaces) == 0 {
 		return fmt.Errorf("at least one interface is required")
 	}
+	for _, iface := range c.Interfaces {
+		if _, err := os.Stat("/sys/class/net/" + iface); os.IsNotExist(err) {
+			return fmt.Errorf("network interface %q does not exist", iface)
+		}
+	}
+
 	switch c.XDPMode {
 	case "auto", "native", "generic", "offload":
 		// OK
 	default:
 		return fmt.Errorf("invalid xdp_mode %q (auto|native|generic|offload)", c.XDPMode)
 	}
+
+	if c.AutoBlackhole.Enabled && c.AutoBlackhole.TriggerPPS == 0 {
+		return fmt.Errorf("auto_blackhole trigger_pps must be > 0 when enabled")
+	}
+
+	if c.Discord.WebhookURL != "" {
+		if !strings.HasPrefix(c.Discord.WebhookURL, "https://discord.com/api/webhooks/") &&
+			!strings.HasPrefix(c.Discord.WebhookURL, "https://discordapp.com/api/webhooks/") {
+			return fmt.Errorf("discord webhook URL must start with https://discord.com/api/webhooks/")
+		}
+	}
+
 	return nil
 }
 

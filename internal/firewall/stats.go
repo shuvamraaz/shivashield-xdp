@@ -76,16 +76,23 @@ func CalcRate(prev, curr Stats) StatsRate {
 	}
 	secs := dt.Seconds()
 	return StatsRate{
-		PassPPS:  ratePer(curr.PassPkts-prev.PassPkts, secs),
-		DropPPS:  ratePer(curr.DropPkts-prev.DropPkts, secs),
-		PassBPS:  ratePer(curr.PassBytes-prev.PassBytes, secs),
-		DropBPS:  ratePer(curr.DropBytes-prev.DropBytes, secs),
-		TCPPPS:   ratePer(curr.TCPPkts-prev.TCPPkts, secs),
-		UDPPPS:   ratePer(curr.UDPPkts-prev.UDPPkts, secs),
-		ICMPPPS:  ratePer(curr.ICMPPkts-prev.ICMPPkts, secs),
-		SYNPPS:   ratePer(curr.SYNPkts-prev.SYNPkts, secs),
+		PassPPS:  ratePer(safeSub(curr.PassPkts, prev.PassPkts), secs),
+		DropPPS:  ratePer(safeSub(curr.DropPkts, prev.DropPkts), secs),
+		PassBPS:  ratePer(safeSub(curr.PassBytes, prev.PassBytes), secs),
+		DropBPS:  ratePer(safeSub(curr.DropBytes, prev.DropBytes), secs),
+		TCPPPS:   ratePer(safeSub(curr.TCPPkts, prev.TCPPkts), secs),
+		UDPPPS:   ratePer(safeSub(curr.UDPPkts, prev.UDPPkts), secs),
+		ICMPPPS:  ratePer(safeSub(curr.ICMPPkts, prev.ICMPPkts), secs),
+		SYNPPS:   ratePer(safeSub(curr.SYNPkts, prev.SYNPkts), secs),
 		Duration: dt,
 	}
+}
+
+func safeSub(curr, prev uint64) uint64 {
+	if curr < prev {
+		return 0 // prevent underflow if maps are reset
+	}
+	return curr - prev
 }
 
 func ratePer(delta uint64, secs float64) uint64 {
