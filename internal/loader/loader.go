@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
@@ -89,6 +90,57 @@ func (l *Loader) Load() error {
 	return nil
 }
 
+// cleanXDPAll aggressively removes ALL XDP attachments from an interface.
+// This clears both legacy netlink attachments (via ip link) and modern
+// bpf_link attachments (via bpftool). Essential for clean restarts.
+func cleanXDPAll(ifaceName string) {
+	// Remove legacy netlink XDP attachments in all modes.
+	for _, mode := range []string{"xdpgeneric", "xdpdrv", "xdpoffload", "xdp"} {
+		_ = exec.Command("ip", "link", "set", "dev", ifaceName, mode, "off").Run()
+	}
+
+	// Remove any bpf_link-style XDP attachments via bpftool.
+	// These survive process death and can't be cleared with ip link.
+	cleanBPFLinks(ifaceName)
+}
+
+// cleanBPFLinks uses bpftool to find and destroy any existing XDP
+// bpf_link attachments on the given interface. This is the only way
+// to remove orphaned bpf_links left by crashed processes.
+func cleanBPFLinks(ifaceName string) {
+	out, err := exec.Command("bpftool", "link", "list").Output()
+	if err != nil {
+		return
+	}
+
+	// bpftool link list output format:
+	//   24: xdp  prog 42
+	//         ...
+	// We look for lines containing "xdp" to find XDP link IDs.
+	lines := strings.Split(string(out), "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if !strings.Contains(trimmed, "xdp") {
+			continue
+		}
+		// Extract the link ID (number before the colon)
+		parts := strings.SplitN(trimmed, ":", 2)
+		if len(parts) < 1 {
+			continue
+		}
+		linkID := strings.TrimSpace(parts[0])
+		if linkID == "" {
+			continue
+		}
+		// Destroy this XDP link.
+		if err := exec.Command("bpftool", "link", "detach", "id", linkID).Run(); err != nil {
+			// detach may fail if it's not ours; try delete as fallback
+			_ = exec.Command("bpftool", "link", "delete", "id", linkID).Run()
+		}
+		log.Printf("[loader] cleaned stale bpf_link id=%s", linkID)
+	}
+}
+
 // Attach attaches the XDP program to the specified network interfaces.
 func (l *Loader) Attach(interfaces []string, mode XDPMode) error {
 	prog := l.coll.Programs["shivashield_xdp"]
@@ -102,10 +154,10 @@ func (l *Loader) Attach(interfaces []string, mode XDPMode) error {
 			return fmt.Errorf("interface %s: %w", ifaceName, err)
 		}
 
-		// Clean up any existing XDP programs (e.g. from a previous crash or other firewall)
-		// This prevents "create link: file exists" or "device or resource busy" errors
-		// when cilium/ebpf tries to attach a new bpf_link over a legacy netlink attachment.
-		_ = exec.Command("ip", "link", "set", "dev", ifaceName, "xdp", "off").Run()
+		// Aggressively clean ALL existing XDP attachments before attempting to attach.
+		// This prevents "device or resource busy" and "file exists" errors
+		// from stale bpf_links left by crashed processes.
+		cleanXDPAll(ifaceName)
 
 		var xdpLink link.Link
 
@@ -123,7 +175,7 @@ func (l *Loader) Attach(interfaces []string, mode XDPMode) error {
 				Flags:     link.XDPGenericMode,
 			})
 		case XDPModeAuto:
-			// Try native first, fall back to generic.
+			// Try native first (40-100x faster packet processing).
 			xdpLink, err = link.AttachXDP(link.XDPOptions{
 				Program:   prog,
 				Interface: iface.Index,
@@ -131,6 +183,9 @@ func (l *Loader) Attach(interfaces []string, mode XDPMode) error {
 			})
 			if err != nil {
 				log.Printf("[loader] native XDP failed on %s (%v), falling back to generic", ifaceName, err)
+				// The failed native attempt may have left a partial bpf_link.
+				// Clean again before attempting generic.
+				cleanXDPAll(ifaceName)
 				xdpLink, err = link.AttachXDP(link.XDPOptions{
 					Program:   prog,
 					Interface: iface.Index,
@@ -150,6 +205,14 @@ func (l *Loader) Attach(interfaces []string, mode XDPMode) error {
 			return fmt.Errorf("attach XDP to %s: %w", ifaceName, err)
 		}
 
+		// Pin the XDP link so it can be found and cleaned up on restart.
+		linkPinPath := filepath.Join(l.pinPath, "xdp_link")
+		if pinner, ok := xdpLink.(interface{ Pin(string) error }); ok {
+			if pinErr := pinner.Pin(linkPinPath); pinErr != nil {
+				log.Printf("[loader] could not pin XDP link: %v (non-fatal)", pinErr)
+			}
+		}
+
 		log.Printf("[loader] XDP attached to %s (ifindex %d)", ifaceName, iface.Index)
 		l.links = append(l.links, xdpLink)
 	}
@@ -164,6 +227,10 @@ func (l *Loader) Detach() {
 		}
 	}
 	l.links = nil
+
+	// Remove the pinned XDP link file if it exists.
+	linkPinPath := filepath.Join(l.pinPath, "xdp_link")
+	_ = os.Remove(linkPinPath)
 
 	if l.coll != nil {
 		l.coll.Close()

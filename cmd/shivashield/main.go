@@ -185,28 +185,33 @@ func cmdLoad() {
 // ── unload ────────────────────────────────────────────────────────────
 
 func cmdUnload() {
-	// First, detach XDP from all interfaces using ip link.
-	// This clears both legacy netlink and bpf_link attachments.
+	// Aggressively detach XDP from all interfaces.
 	confPath := defaultConf
 	cfg, err := config.LoadFile(confPath)
 	if err == nil {
 		for _, iface := range cfg.Interfaces {
-			// Try ip link to remove legacy XDP
-			exec.Command("ip", "link", "set", "dev", iface, "xdp", "off").Run()
-			// Also try to detach any bpf_links via bpftool
-			out, err := exec.Command("bpftool", "link", "list").Output()
-			if err == nil {
-				// Parse output to find XDP links on our interfaces
-				lines := strings.Split(string(out), "\n")
-				for _, line := range lines {
-					if strings.Contains(line, "xdp") && strings.Contains(line, iface) {
-						// Extract link ID from the beginning of the line (e.g., "24: xdp ...")
-						parts := strings.SplitN(strings.TrimSpace(line), ":", 2)
-						if len(parts) >= 1 {
-							linkID := strings.TrimSpace(parts[0])
-							exec.Command("bpftool", "link", "detach", "id", linkID).Run()
-							log.Printf("detached bpf_link %s from %s", linkID, iface)
+			// Remove legacy netlink XDP attachments in all modes.
+			for _, mode := range []string{"xdpgeneric", "xdpdrv", "xdpoffload", "xdp"} {
+				exec.Command("ip", "link", "set", "dev", iface, mode, "off").Run()
+			}
+		}
+	}
+
+	// Kill ALL xdp bpf_links via bpftool (catches orphaned links from crashes).
+	out, err := exec.Command("bpftool", "link", "list").Output()
+	if err == nil {
+		lines := strings.Split(string(out), "\n")
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if strings.Contains(trimmed, "xdp") {
+				parts := strings.SplitN(trimmed, ":", 2)
+				if len(parts) >= 1 {
+					linkID := strings.TrimSpace(parts[0])
+					if linkID != "" {
+						if err := exec.Command("bpftool", "link", "detach", "id", linkID).Run(); err != nil {
+							_ = exec.Command("bpftool", "link", "delete", "id", linkID).Run()
 						}
+						log.Printf("detached bpf_link id=%s", linkID)
 					}
 				}
 			}

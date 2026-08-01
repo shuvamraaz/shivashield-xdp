@@ -593,7 +593,8 @@ func (fw *Firewall) populatePortRules() {
 }
 
 // consumeEvents reads the ring buffer for events from the XDP program
-// and dispatches alerts.
+// and dispatches alerts. Includes a rate limiter to prevent CPU saturation
+// during massive spoofed floods (which generate thousands of unique events/sec).
 func (fw *Firewall) consumeEvents(ctx context.Context) {
 	if fw.eventsMap == nil {
 		log.Println("[firewall] events_map not available, event consumer disabled")
@@ -615,6 +616,14 @@ func (fw *Firewall) consumeEvents(ctx context.Context) {
 	dedupSeen := make(map[dedupKey]time.Time)
 	const dedupTTL = 5 * time.Second
 
+	// Global event rate limiter: prevents CPU saturation from spoofed floods.
+	// With 100K+ unique spoofed IPs, the BPF program can generate thousands
+	// of events/sec. Processing each one (map lookups, string formatting,
+	// Discord webhooks) can consume an entire CPU core on a 2-core VPS.
+	const maxEventsPerSecond = 500
+	var eventCount int
+	var windowStart time.Time
+
 	log.Println("[firewall] event consumer started")
 	for {
 		select {
@@ -633,6 +642,21 @@ func (fw *Firewall) consumeEvents(ctx context.Context) {
 				time.Sleep(100 * time.Millisecond)
 				continue
 			}
+		}
+
+		// Rate limiter: track events processed per second.
+		now := time.Now()
+		if now.Sub(windowStart) >= time.Second {
+			// New window — reset counter.
+			eventCount = 0
+			windowStart = now
+		}
+		eventCount++
+		if eventCount > maxEventsPerSecond {
+			// Over budget — read the event from the ring buffer (to drain it)
+			// but don't process it. This prevents the ring buffer from backing
+			// up and blocking the BPF program while keeping CPU usage minimal.
+			continue
 		}
 
 		if len(record.RawSample) < 56 { // minimum ss_event size
