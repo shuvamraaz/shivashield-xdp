@@ -2,16 +2,63 @@ package tui
 
 import (
 	"fmt"
-	"os"
-	"time"
+	"io"
 	"log"
+	"net/http"
+	"os"
 	"runtime"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/guptarohit/asciigraph"
 	"github.com/rivo/tview"
 	"github.com/shuvamraaz/shivashield-xdp/internal/firewall"
 )
+
+var (
+	countryCache = make(map[string]string)
+	cacheMu      sync.RWMutex
+	httpClient   = &http.Client{Timeout: 2 * time.Second}
+)
+
+func getCountry(ip string) string {
+	if ip == "" {
+		return ""
+	}
+	cacheMu.RLock()
+	c, ok := countryCache[ip]
+	cacheMu.RUnlock()
+	if ok {
+		return c
+	}
+
+	cacheMu.Lock()
+	countryCache[ip] = "..."
+	cacheMu.Unlock()
+
+	go func(targetIP string) {
+		resp, err := httpClient.Get("https://get.geojs.io/v1/ip/country/" + targetIP)
+		if err != nil {
+			cacheMu.Lock()
+			countryCache[targetIP] = "???"
+			cacheMu.Unlock()
+			return
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		country := strings.TrimSpace(string(body))
+		if country == "" || len(country) > 10 {
+			country = "???"
+		}
+		cacheMu.Lock()
+		countryCache[targetIP] = country
+		cacheMu.Unlock()
+	}(ip)
+
+	return "..."
+}
 
 type Dashboard struct {
 	fw     *firewall.Firewall
@@ -28,7 +75,6 @@ type Dashboard struct {
 	ppsDropChart *tview.TextView
 	historyView  *tview.TextView
 	configView   *tview.TextView
-	mapView      *tview.TextView
 
 	// Data history for charts
 	ppsPassHistory []float64
@@ -57,7 +103,6 @@ func (d *Dashboard) Run() {
 	d.pages.AddPage("status", d.buildStatusPage(), true, false)
 	d.pages.AddPage("history", d.buildHistoryPage(), true, false)
 	d.pages.AddPage("config", d.buildConfigPage(), true, false)
-	d.pages.AddPage("map", d.buildMapPage(), true, false)
 
 	layout := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(d.headerText, 1, 0, false).
@@ -78,8 +123,6 @@ func (d *Dashboard) Run() {
 			d.pages.SwitchToPage("history")
 		case '5':
 			d.pages.SwitchToPage("config")
-		case '6':
-			d.pages.SwitchToPage("map")
 		case ' ':
 			d.fw.SetBlackhole(!d.fw.IsBlackhole())
 		}
@@ -205,7 +248,7 @@ func (d *Dashboard) updateUI(rate firewall.StatsRate, curr firewall.Stats) {
 			stateColor = "[red][blink]"
 		}
 
-		d.headerText.SetText(fmt.Sprintf("[white]ShivaShield XDP | %s%s[-] | [yellow]1[white]:Dash [yellow]2[white]:Live [yellow]3[white]:Status [yellow]4[white]:Hist [yellow]5[white]:Conf [yellow]6[white]:Map [yellow]q[white]:Quit | Blackhole: %s", stateColor, state, bhStatus))
+		d.headerText.SetText(fmt.Sprintf("[white]ShivaShield XDP | %s%s[-] | [yellow]1[white]:Dash [yellow]2[white]:Live [yellow]3[white]:Status [yellow]4[white]:Hist [yellow]5[white]:Conf [yellow]q[white]:Quit | Blackhole: %s", stateColor, state, bhStatus))
 
 		// --- Dash ---
 		dashText := fmt.Sprintf(`[cyan]Live Metrics:[white]
@@ -255,10 +298,11 @@ func (d *Dashboard) updateUI(rate firewall.StatsRate, curr firewall.Stats) {
 
 		// --- Live (Leaderboard) ---
 		liveText := fmt.Sprintf("[cyan]Anomaly Detector:[white]\nBaseline PPS: %.2f  |  Spike: %.2fx  |  Attack Type: %s  |  Duration: %s\n\n", base, spike, aType, dur.String())
-		liveText += "[yellow]Top Attackers:[white]\nIP                   PPS         SYN         Score     Status\n"
-		liveText += "----------------------------------------------------------------------\n"
+		liveText += "[yellow]Top Attackers:[white]\nIP                   Country     PPS         SYN         Score     Status\n"
+		liveText += "---------------------------------------------------------------------------------\n"
 		for _, a := range d.fw.Leaderboard.GetTop(15) {
-			liveText += fmt.Sprintf("%-20s %-11d %-11d %-9d %s\n", a.IP, a.PPS, a.SYN, a.Score, a.Status)
+			cc := getCountry(a.IP)
+			liveText += fmt.Sprintf("%-20s %-11s %-11d %-11d %-9d %s\n", a.IP, cc, a.PPS, a.SYN, a.Score, a.Status)
 		}
 		d.liveStats.SetText(liveText)
 		
@@ -288,15 +332,17 @@ func (d *Dashboard) updateUI(rate firewall.StatsRate, curr firewall.Stats) {
 		// --- History ---
 		if d.fw.History != nil {
 			hist, _ := d.fw.History.ReadHistory(20)
-			histText := "[cyan]Start Time           Duration   Type            Peak PPS    Top IP[white]\n"
-			histText += "--------------------------------------------------------------------------------\n"
+			histText := "[cyan]Start Time           Duration   Type            Peak PPS    Country Top IP[white]\n"
+			histText += "------------------------------------------------------------------------------------------\n"
 			for _, h := range hist {
 				topIP := ""
+				cc := ""
 				if len(h.TopIPs) > 0 {
 					topIP = h.TopIPs[0].IP
+					cc = getCountry(topIP)
 				}
-				histText += fmt.Sprintf("%-20s %-10s %-15s %-11.0f %s\n",
-					h.StartTime.Format("01/02 15:04:05"), h.Duration, h.Type, h.PeakPPS, topIP)
+				histText += fmt.Sprintf("%-20s %-10s %-15s %-11.0f %-7s %s\n",
+					h.StartTime.Format("01/02 15:04:05"), h.Duration, h.Type, h.PeakPPS, cc, topIP)
 			}
 			d.historyView.SetText(histText)
 		}
